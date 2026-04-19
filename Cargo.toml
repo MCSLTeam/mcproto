@@ -1,5 +1,16 @@
 [workspace]
+resolver = "3"
 members = [
     "mcproto", # 主Crate，几乎是空的，用于控制feature
-    "mcproto-codec"
+    "mcproto-codec" # Codec,包括VarInt，加密，压缩
 ]
+
+[workspace.package]
+version = "0.1.4-alpha.1"
+edition = "2024"
+authors = ["MCSLTeam <services@mcsl.com.cn>"]
+license = "GPL-3.0-only"
+repository = "https://github.com/MCSLTeam/mcproto"
+
+[workspace.dependencies]
+mcproto-codec = { path = "./mcproto-codec", version = "0.1.4-alpha.1" }

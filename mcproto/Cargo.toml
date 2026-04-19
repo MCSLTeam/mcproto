@@ -1,11 +1,10 @@
 [package]
 name = "mcproto"
-version = "0.1.4-alpha.1"
-edition = "2024"
-authors = ["MCSLTeam <services@mcsl.com.cn>"]
-description = "Minecraft protocols in Rust. Async, fast and easy-to-use."
-license = "GPL-3.0-only"
-repository = "https://github.com/MCSLTeam/mcproto"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
 readme = "README.md"
 keywords = ["Minecraft", "Serde", "MC", "Protocol", "Quick"]
 categories = ["network-programming", "asynchronous", "game-development", "encoding"]
@@ -14,5 +13,5 @@ categories = ["network-programming", "asynchronous", "game-development", "encodi
 default = []
 codec = ["dep:mcproto-codec"]
 [dependencies]
-mcproto-codec = { path = "../mcproto-codec", optional = true }
+mcproto-codec = { workspace = true, optional = true }
 
