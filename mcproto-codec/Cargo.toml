@@ -10,3 +10,5 @@ readme = "README.md"
 keywords = ["Minecraft", "VarInt", "Codec", "Encryption", "Compression"]
 categories = ["encoding", "compression", "cryptography", "network-programming", "game-development"]
 [dependencies]
+thiserror = "2.0.18"
+rand = "0.10.1"
