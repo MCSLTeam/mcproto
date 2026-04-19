@@ -1,2 +1,5 @@
 [workspace]
-members = []
+members = [
+    "mcproto", # 主Crate，几乎是空的，用于控制feature
+    "mcproto-codec"
+]
