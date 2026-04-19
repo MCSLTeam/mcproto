@@ -1,0 +1,12 @@
+[package]
+name = "mcproto-types"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "All types for Minecraft."
+keywords = ["Minecraft", "MC", "Type", "Protocol", "High-Performanec"]
+categories = ["encoding", "network-programming", "game-development"]
+readme = "README.md"
+[dependencies]
