@@ -5,6 +5,7 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "VarInt, encryption and compression coder & decoder for Minecraft protocols."
 readme = "README.md"
 keywords = ["Minecraft", "VarInt", "Codec", "Encryption", "Compression"]
 categories = ["encoding", "compression", "cryptography", "network-programming", "game-development"]

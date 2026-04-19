@@ -5,6 +5,7 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "Minecraft protocols in Rust, async, fast and easy to use."
 readme = "README.md"
 keywords = ["Minecraft", "Serde", "MC", "Protocol", "Quick"]
 categories = ["network-programming", "asynchronous", "game-development", "encoding"]
