@@ -7,7 +7,8 @@ Minecraft protocols in Rust, async, fast and easy to use.
 
 | Feature | Description | Default |
 |---------|-------------|---------|
-| `codec` | Enable VarInt, encryption and compression support | No | 
+| `codec` | Enable VarInt, encryption and compression support | No |
+
 ### Usage
 
 Add to your `Cargo.toml`:
