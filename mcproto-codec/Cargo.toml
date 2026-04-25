@@ -11,4 +11,15 @@ keywords = ["Minecraft", "VarInt", "Codec", "Encryption", "Compression"]
 categories = ["encoding", "compression", "cryptography", "network-programming", "game-development"]
 [dependencies]
 thiserror = "2.0.18"
+
+[dev-dependencies]
 rand = "0.10.1"
+criterion = "0.8.2"
+
+[[bench]]
+name = "varint_bench"
+harness = false
+
+[[bench]]
+name = "varlong_bench"
+harness = false
