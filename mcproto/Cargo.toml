@@ -11,10 +11,11 @@ keywords = ["Minecraft", "Serde", "MC", "Protocol", "Quick"]
 categories = ["network-programming", "asynchronous", "game-development", "encoding"]
 
 [features]
-default = ["codec", "types"]
+default = ["codec", "nbt", "types"]
 codec = ["dep:mcproto-codec"]
+nbt = ["dep:mcproto-nbt"]
 types = ["dep:mcproto-types"]
 [dependencies]
 mcproto-codec = { workspace = true, optional = true }
+mcproto-nbt = { workspace = true, optional = true }
 mcproto-types = { workspace = true, optional = true }
-

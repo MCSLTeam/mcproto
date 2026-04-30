@@ -13,3 +13,4 @@ readme = "README.md"
 thiserror = "2.0.18"
 derive_more = { version = "2.1.1", features = ["deref", "deref_mut", "into", "from"] }
 mcproto-codec = { workspace = true }
+uuid = "1.23.1"
