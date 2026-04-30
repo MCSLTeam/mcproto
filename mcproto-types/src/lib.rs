@@ -1,6 +1,8 @@
 pub mod basic;
+pub mod compound;
 
 use thiserror::Error;
+use mcproto_codec::CodecError;
 
 #[derive(Error, Debug)]
 pub enum TypeCodecError {
@@ -12,6 +14,12 @@ pub enum TypeCodecError {
     InvalidBoolean(u8),
     #[error("End of buffer: {0}, at least {1}")]
     EndOfBuffer(usize, usize),
+    #[error("String length invalid: {0}")]
+    InvalidStringLength(usize),
+    #[error("Codec error: {0}")]
+    CodecError(#[from] CodecError),
+    #[error("Invalid utf8")]
+    InvalidUtf8,
 }
 pub trait Codec {
     fn encode(&self, buf: &mut Vec<u8>) -> Result<(), TypeCodecError>;

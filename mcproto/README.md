@@ -7,7 +7,8 @@ Minecraft protocols in Rust, async, fast and easy to use.
 
 | Feature | Description | Default |
 |---------|-------------|---------|
-| `codec` | Enable VarInt, encryption and compression support | No |
+| `codec` | Enable VarInt, VarLong, encryption and compression support | No |
+| `types` | Enable Minecraft protocol types (basic and compound types) | No |
 
 ### Usage
 

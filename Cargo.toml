@@ -7,12 +7,12 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.4-alpha.1"
+version = "0.1.4-alpha.2"
 edition = "2024"
 authors = ["MCSLTeam <services@mcsl.com.cn>"]
 license = "GPL-3.0-only"
 repository = "https://github.com/MCSLTeam/mcproto"
 
 [workspace.dependencies]
-mcproto-codec = { path = "./mcproto-codec", version = "0.1.4-alpha.1" }
-mcproto-types = { path = "./mcproto-types", version = "0.1.4-alpha.1" }
+mcproto-codec = { path = "./mcproto-codec", version = "0.1.4-alpha.2" }
+mcproto-types = { path = "./mcproto-types", version = "0.1.4-alpha.2" }
