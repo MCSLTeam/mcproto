@@ -23,6 +23,8 @@ Basic types are in `basic` mod.
 ### Compound Types
 Compound types are in `compound` mod.
 
-| Type    | Notes                                                            | Protocol Name |
-|---------|------------------------------------------------------------------|---------------|
-| `Angle` | Rotation angle in steps of 1/256 of a full turn (0-255 = 0-360°) | Angle         |
+| Type            | Notes                                                            | Protocol Name  |
+|-----------------|------------------------------------------------------------------|----------------|
+| `Angle`         | Rotation angle in steps of 1/256 of a full turn (0-255 = 0-360°) | Angle          |
+| `Text`          | UTF-8 text encoded as a VarInt-prefixed string                   | Text           |
+| `JsonTextComponent` | JSON text component encoded as a VarInt-prefixed UTF-8 string; decode max 262144 chars, encode max 32767 chars | Text Component |

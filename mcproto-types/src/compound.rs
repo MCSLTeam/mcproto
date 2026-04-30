@@ -1,6 +1,9 @@
 use derive_more::with_trait::{Into, Deref, DerefMut, From};
 use crate::{Codec, TypeCodecError};
 
+const MAX_TEXT_COMPONENT_DECODE_CHARS: usize = 262_144;
+const MAX_TEXT_COMPONENT_ENCODE_CHARS: usize = 32_767;
+
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, From, Into, Deref, DerefMut)]
 pub struct Angle(pub u8);
@@ -42,5 +45,40 @@ impl Codec for Angle {
         let byte = buf[0];
         *buf = &buf[1..];
         Ok(Angle(byte))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, From, Into, Deref, DerefMut)]
+pub struct TextComponent(pub String);
+
+impl Codec for TextComponent {
+    fn encode(&self, buf: &mut Vec<u8>) -> Result<(), TypeCodecError> {
+        self.0.encode(buf)
+    }
+
+    fn decode(buf: &mut &[u8]) -> Result<Self, TypeCodecError> {
+        String::decode(buf).map(TextComponent)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, From, Into, Deref, DerefMut)]
+pub struct JsonTextComponent(pub String);
+
+impl Codec for JsonTextComponent {
+    fn encode(&self, buf: &mut Vec<u8>) -> Result<(), TypeCodecError> {
+        let char_count = self.0.chars().count();
+        if char_count > MAX_TEXT_COMPONENT_ENCODE_CHARS {
+            return Err(TypeCodecError::InvalidTextComponentLength(char_count));
+        }
+        self.0.encode(buf)
+    }
+
+    fn decode(buf: &mut &[u8]) -> Result<Self, TypeCodecError> {
+        let text = String::decode(buf)?;
+        let char_count = text.chars().count();
+        if char_count > MAX_TEXT_COMPONENT_DECODE_CHARS {
+            return Err(TypeCodecError::InvalidTextComponentLength(char_count));
+        }
+        Ok(JsonTextComponent(text))
     }
 }
