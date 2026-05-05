@@ -189,6 +189,63 @@ impl BitSet {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, From, Into, Deref, DerefMut)]
+pub struct FixedBitSet<const BYTES: usize>(pub [u8; BYTES]);
+
+impl<const BYTES: usize> FixedBitSet<BYTES> {
+    pub const fn new(data: [u8; BYTES]) -> Self {
+        Self(data)
+    }
+
+    pub const fn byte_len() -> usize {
+        BYTES
+    }
+
+    pub const fn bit_capacity() -> usize {
+        BYTES * 8
+    }
+
+    pub fn get(&self, index: usize) -> bool {
+        if index >= Self::bit_capacity() {
+            return false;
+        }
+        let byte_index = index / 8;
+        let bit_index = index % 8;
+        (self.0[byte_index] & (1 << bit_index)) != 0
+    }
+
+    pub fn set(&mut self, index: usize, value: bool) {
+        if index >= Self::bit_capacity() {
+            return;
+        }
+        let byte_index = index / 8;
+        let bit_index = index % 8;
+        let mask = 1u8 << bit_index;
+        if value {
+            self.0[byte_index] |= mask;
+        } else {
+            self.0[byte_index] &= !mask;
+        }
+    }
+}
+
+impl<const BYTES: usize> Codec for FixedBitSet<BYTES> {
+    fn encode(&self, buf: &mut Vec<u8>) -> Result<(), TypeCodecError> {
+        buf.extend_from_slice(&self.0);
+        Ok(())
+    }
+
+    fn decode(buf: &mut &[u8]) -> Result<Self, TypeCodecError> {
+        let bytes: [u8; BYTES] = buf
+            .get(..BYTES)
+            .ok_or(TypeCodecError::EndOfBuffer(buf.len(), BYTES))?
+            .try_into()
+            .map_err(|_| TypeCodecError::EndOfBuffer(buf.len(), BYTES))?;
+        *buf = &buf[BYTES..];
+        Ok(Self(bytes))
+    }
+}
+
 impl Codec for BitSet {
     fn encode(&self, buf: &mut Vec<u8>) -> Result<(), TypeCodecError> {
         let len = i32::try_from(self.0.len())
@@ -350,4 +407,3 @@ impl Codec for UUID {
         Ok(UUID(Uuid::from_bytes(bytes)))
     }
 }
-
