@@ -1,5 +1,6 @@
 use derive_more::with_trait::{Into, Deref, DerefMut, From};
 use crate::{Codec, TypeCodecError};
+use mcproto_codec::{VarIntRead, VarIntWrite};
 use uuid::Uuid;
 
 const MAX_TEXT_COMPONENT_DECODE_CHARS: usize = 262_144;
@@ -145,6 +146,189 @@ impl Codec for Position {
     }
 }
 
+// LpVec3
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LpVec3 {
+    pub x: f64,
+    pub y: f64,
+    pub z: f64,
+}
+
+// Bit Set
+#[derive(Debug, Clone, PartialEq, Eq, Hash, From, Into, Deref, DerefMut)]
+pub struct BitSet(pub Vec<i64>);
+
+impl BitSet {
+    pub fn new(data: Vec<i64>) -> Self {
+        Self(data)
+    }
+
+    pub fn get(&self, index: usize) -> bool {
+        let long_index = index / 64;
+        let bit_index = index % 64;
+        self.0
+            .get(long_index)
+            .map(|value| ((*value as u64) & (1u64 << bit_index)) != 0)
+            .unwrap_or(false)
+    }
+
+    pub fn set(&mut self, index: usize, value: bool) {
+        let long_index = index / 64;
+        let bit_index = index % 64;
+        if long_index >= self.0.len() {
+            self.0.resize(long_index + 1, 0);
+        }
+        let mut bits = self.0[long_index] as u64;
+        let mask = 1u64 << bit_index;
+        if value {
+            bits |= mask;
+        } else {
+            bits &= !mask;
+        }
+        self.0[long_index] = bits as i64;
+    }
+}
+
+impl Codec for BitSet {
+    fn encode(&self, buf: &mut Vec<u8>) -> Result<(), TypeCodecError> {
+        let len = i32::try_from(self.0.len())
+            .map_err(|_| TypeCodecError::InvalidArrayLength(i32::MAX))?;
+        buf.write_varint(len)?;
+        for value in &self.0 {
+            buf.extend_from_slice(&value.to_be_bytes());
+        }
+        Ok(())
+    }
+
+    fn decode(buf: &mut &[u8]) -> Result<Self, TypeCodecError> {
+        let len = buf.read_varint()?;
+        if len < 0 {
+            return Err(TypeCodecError::InvalidArrayLength(len));
+        }
+        let len = len as usize;
+        let mut data = Vec::with_capacity(len);
+
+        for _ in 0..len {
+            let bytes: [u8; 8] = buf
+                .get(..8)
+                .ok_or(TypeCodecError::EndOfBuffer(buf.len(), 8))?
+                .try_into()
+                .map_err(|_| TypeCodecError::EndOfBuffer(buf.len(), 8))?;
+            *buf = &buf[8..];
+            data.push(i64::from_be_bytes(bytes));
+        }
+
+        Ok(Self(data))
+    }
+}
+
+impl LpVec3 {
+    pub const fn new(x: f64, y: f64, z: f64) -> Self {
+        Self { x, y, z }
+    }
+}
+
+impl Codec for LpVec3 {
+    fn encode(&self, buf: &mut Vec<u8>) -> Result<(), TypeCodecError> {
+        const MIN_THRESHOLD: f64 = 3.051_944_088_384_301e-5;
+        const MAX_COORDINATE: f64 = 17_179_869_183.0;
+        const MAX_QUANTIZED_VALUE: f64 = 32_766.0;
+
+        let x = self.x.clamp(-MAX_COORDINATE, MAX_COORDINATE);
+        let y = self.y.clamp(-MAX_COORDINATE, MAX_COORDINATE);
+        let z = self.z.clamp(-MAX_COORDINATE, MAX_COORDINATE);
+
+        if !x.is_finite() || !y.is_finite() || !z.is_finite() {
+            buf.push(0);
+            return Ok(());
+        }
+
+        let max_coordinate = x.abs().max(y.abs()).max(z.abs());
+        if max_coordinate < MIN_THRESHOLD {
+            buf.push(0);
+            return Ok(());
+        }
+
+        let max_coordinate_i = max_coordinate as i64;
+        let scale_factor = if max_coordinate > max_coordinate_i as f64 {
+            max_coordinate_i + 1
+        } else {
+            max_coordinate_i
+        };
+
+        let need_continuation = (scale_factor & 3) != scale_factor;
+        let packed_scale = if need_continuation {
+            (scale_factor & 3) | 4
+        } else {
+            scale_factor
+        };
+
+        let pack = |v: f64| -> u64 {
+            let normalized = v / scale_factor as f64;
+            let quantized = ((normalized * 0.5 + 0.5) * MAX_QUANTIZED_VALUE).round();
+            (quantized as u64) & 0x7fff
+        };
+
+        let packed_x = pack(x) << 3;
+        let packed_y = pack(y) << 18;
+        let packed_z = pack(z) << 33;
+        let packed = packed_z | packed_y | packed_x | (packed_scale as u64);
+
+        buf.push(packed as u8);
+        buf.push((packed >> 8) as u8);
+        buf.extend_from_slice(&((packed >> 16) as u32).to_be_bytes());
+        if need_continuation {
+            buf.write_varint((scale_factor >> 2) as i32)?;
+        }
+        Ok(())
+    }
+
+    fn decode(buf: &mut &[u8]) -> Result<Self, TypeCodecError> {
+        const MAX_QUANTIZED_VALUE: f64 = 32_766.0;
+
+        let byte1 = *buf
+            .first()
+            .ok_or(TypeCodecError::EndOfBuffer(buf.len(), 1))?;
+        *buf = &buf[1..];
+
+        if byte1 == 0 {
+            return Ok(Self::new(0.0, 0.0, 0.0));
+        }
+
+        let byte2 = *buf
+            .first()
+            .ok_or(TypeCodecError::EndOfBuffer(buf.len(), 1))?;
+        *buf = &buf[1..];
+
+        let bytes3_to_6: [u8; 4] = buf
+            .get(..4)
+            .ok_or(TypeCodecError::EndOfBuffer(buf.len(), 4))?
+            .try_into()
+            .map_err(|_| TypeCodecError::EndOfBuffer(buf.len(), 4))?;
+        *buf = &buf[4..];
+
+        let bytes3_to_6 = u32::from_be_bytes(bytes3_to_6) as u64;
+        let packed = (bytes3_to_6 << 16) | ((byte2 as u64) << 8) | (byte1 as u64);
+
+        let mut scale_factor = (byte1 & 3) as u64;
+        if (byte1 & 4) == 4 {
+            scale_factor |= ((buf.read_varint()? as u32 as u64) << 2) & 0xffff_ffff_ffff_fffc;
+        }
+
+        let unpack = |v: u64| -> f64 {
+            let q = (v & 0x7fff).min(32_766) as f64;
+            q * 2.0 / MAX_QUANTIZED_VALUE - 1.0
+        };
+
+        let sf = scale_factor as f64;
+        Ok(Self {
+            x: unpack(packed >> 3) * sf,
+            y: unpack(packed >> 18) * sf,
+            z: unpack(packed >> 33) * sf,
+        })
+    }
+}
+
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, From, Into, Deref, DerefMut)]
 pub struct UUID(pub Uuid);
@@ -166,3 +350,4 @@ impl Codec for UUID {
         Ok(UUID(Uuid::from_bytes(bytes)))
     }
 }
+

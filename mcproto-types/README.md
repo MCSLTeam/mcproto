@@ -23,10 +23,12 @@ Basic types are in `basic` mod.
 ### Compound Types
 Compound types are in `compound` mod.
 
-| Type                | Notes                                                                                                                | Protocol Name  |
-|---------------------|----------------------------------------------------------------------------------------------------------------------|----------------|
-| `Angle`             | Rotation angle in steps of `1/256` of a full turn (`0-255 = 0-360°`)                                                 | Angle          |
-| `TextComponent`     | UTF-8 text encoded as a `VarInt`-prefixed string                                                                     | Text           |
-| `JsonTextComponent` | JSON text component encoded as a `VarInt`-prefixed UTF-8 string; decode max `262144` chars, encode max `32767` chars | Text Component |
-| `Position`          | Packed block position: `x/z` use 26 signed bits, `y` uses 12 signed bits                                             | Position       |
-| `UUID`              | UUID encoded as 16 bytes: most significant 64 bits followed by least significant 64 bits                            | UUID           |
+| Type                | Notes                                                                                                                   | Protocol Name  |
+|---------------------|-------------------------------------------------------------------------------------------------------------------------|----------------|
+| `Angle`             | Rotation angle in steps of `1/256` of a full turn (`0-255 = 0-360°`)                                                    | Angle          |
+| `TextComponent`     | UTF-8 text encoded as a `VarInt`-prefixed string                                                                        | Text           |
+| `JsonTextComponent` | JSON text component encoded as a `VarInt`-prefixed UTF-8 string; decode max `262144` chars, encode max `32767` chars    | Text Component |
+| `Position`          | Packed block position: `x/z` use 26 signed bits, `y` uses 12 signed bits                                                | Position       |
+| `UUID`              | UUID encoded as 16 bytes: most significant 64 bits followed by least significant 64 bits                                | UUID           |
+| `LpVec3`            | Low-precision 3D vector for velocity fields; quantized and packed (usually 6 bytes, may include VarInt scale extension) | LpVec3         |
+| `BitSet`            | Length-prefixed bit set: `VarInt` long-count followed by that many signed 64-bit big-endian `Long` values               | BitSet         |

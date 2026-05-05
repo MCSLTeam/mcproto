@@ -20,6 +20,8 @@ pub enum TypeCodecError {
     InvalidTextComponentLength(usize),
     #[error("Position {0} out of range: {1}")]
     InvalidPositionValue(&'static str, i32),
+    #[error("Array length invalid: {0}")]
+    InvalidArrayLength(i32),
     #[error("Codec error: {0}")]
     CodecError(#[from] CodecError),
     #[error("Invalid utf8")]
