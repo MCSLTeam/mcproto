@@ -407,3 +407,7 @@ impl Codec for UUID {
         Ok(UUID(Uuid::from_bytes(bytes)))
     }
 }
+// TODO: EntityMetadata
+// TODO: NBT
+// TODO: Slot
+// TODO: Hashed Slot
