@@ -1,5 +1,6 @@
 pub mod basic;
 pub mod compound;
+pub mod contextual;
 
 use thiserror::Error;
 use mcproto_codec::CodecError;
@@ -22,6 +23,10 @@ pub enum TypeCodecError {
     InvalidPositionValue(&'static str, i32),
     #[error("Array length invalid: {0}")]
     InvalidArrayLength(i32),
+    #[error("Missing context field: {0}")]
+    MissingContext(&'static str),
+    #[error("Context mismatch: {0}")]
+    ContextMismatch(&'static str),
     #[error("Codec error: {0}")]
     CodecError(#[from] CodecError),
     #[error("Invalid utf8")]
@@ -32,4 +37,31 @@ pub trait Codec {
     fn decode(buf: &mut &[u8]) -> Result<Self, TypeCodecError>
     where
         Self: Sized;
+}
+
+pub struct Ctx {
+    pub present: Option<bool>,      // Optional
+    pub len: Option<usize>,         // Array / fixed bytes
+    pub bits: Option<usize>,        // FixedBitSet(n)
+    pub max_chars: Option<usize>,   // String/Text limit
+    pub tag: Option<i32>,           // union/enum selector
+}
+
+
+pub trait ContextualCodec<Ctx = ()>: Sized {
+    fn encode_with_ctx(&self, buf: &mut Vec<u8>, ctx: &Ctx) -> Result<(), TypeCodecError>;
+    fn decode_with_ctx(buf: &mut &[u8], ctx: &Ctx) -> Result<Self, TypeCodecError>;
+}
+
+impl<T> ContextualCodec<()> for T
+where
+    T: Codec,
+{
+    fn encode_with_ctx(&self, buf: &mut Vec<u8>, _ctx: &()) -> Result<(), TypeCodecError> {
+        self.encode(buf)
+    }
+
+    fn decode_with_ctx(buf: &mut &[u8], _ctx: &()) -> Result<Self, TypeCodecError> {
+        Self::decode(buf)
+    }
 }

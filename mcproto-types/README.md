@@ -33,4 +33,10 @@ Compound types are in `compound` mod.
 | `LpVec3`            | Low-precision 3D vector for velocity fields; quantized and packed (usually 6 bytes, may include VarInt scale extension) | LpVec3         |
 | `BitSet`            | Length-prefixed bit set: `VarInt` long-count followed by that many signed 64-bit big-endian `Long` values               | BitSet         |
 | `FixedBitSet<N>`    | Fixed-length bit set encoded as exactly `N` bytes (`ceil(bits/8)`), using per-byte LSB-first bit ordering               | Fixed BitSet   |
-| `BitSet`            | Length-prefixed bit set: `VarInt` long-count followed by that many signed 64-bit big-endian `Long` values               | BitSet         |
+
+### Contextual Types
+Contextual types are in `contextual` mod and use `ContextualCodec` with `Ctx`.
+
+| Type          | Notes                                                                                                       | Protocol Name |
+|---------------|-------------------------------------------------------------------------------------------------------------|---------------|
+| `Optional<T>` | Optional value without prefix; encoded as either nothing or `T`. Presence is controlled by `Ctx.present`.   | Optional X    |
