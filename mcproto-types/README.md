@@ -37,10 +37,12 @@ Compound types are in `compound` mod.
 ### Contextual Types
 Contextual types are in `contextual` mod and use `ContextualCodec` with `Ctx`.
 
-| Type                  | Notes                                                                                                     | Protocol Name       |
-|-----------------------|-----------------------------------------------------------------------------------------------------------|---------------------|
-| `Optional<T>`         | Optional value without prefix; encoded as either nothing or `T`. Presence is controlled by `Ctx.present`. | Optional X          |
-| `PrefixedOptional<T>` | Optional value with boolean prefix; `false` encodes only the prefix, `true` encodes prefix + `T`.         | Prefixed Optional X |
-| `Array<T>`            | Non-prefixed array of `T`; length is provided by context via `Ctx.len`.                                   | Array of X          |
-| `PrefixedArray<T>`    | Length-prefixed array of `T`; encoded as `VarInt` length followed by elements.                            | Prefixed Array of X |
-| `ByteArray`           | Raw sequence of bytes with length provided by context via `Ctx.len` (no self length prefix).              | Byte Array          |
+| Type                  | Notes                                                                                                                | Protocol Name       |
+|-----------------------|----------------------------------------------------------------------------------------------------------------------|---------------------|
+| `Optional<T>`         | Optional value without prefix; encoded as either nothing or `T`. Presence is controlled by `Ctx.present`.            | Optional X          |
+| `PrefixedOptional<T>` | Optional value with boolean prefix; `false` encodes only the prefix, `true` encodes prefix + `T`.                    | Prefixed Optional X |
+| `Array<T>`            | Non-prefixed array of `T`; length is provided by context via `Ctx.len`.                                              | Array of X          |
+| `PrefixedArray<T>`    | Length-prefixed array of `T`; encoded as `VarInt` length followed by elements.                                       | Prefixed Array of X |
+| `ByteArray`           | Raw sequence of bytes with length provided by context via `Ctx.len` (no self length prefix).                         | Byte Array          |
+| `IdOr<T>`             | Either registry reference or inline `T`: `id=0` means inline value follows, otherwise registry id is `id-1`.         | ID or X             |
+| `IdSet`               | Set of registry IDs represented either by tag (`type=0` + `Identifier`) or inline IDs (`type=len+1` + VarInt array). | ID Set              |

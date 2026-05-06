@@ -1,5 +1,6 @@
 use crate::{Codec, ContextualCodec, Ctx, TypeCodecError};
 use mcproto_codec::{VarIntRead, VarIntWrite};
+use crate::basic::{Identifier, Float};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Optional<T>(pub Option<T>);
@@ -167,6 +168,139 @@ impl ContextualCodec<Ctx> for ByteArray {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum IdOr<T> {
+    Inline(T),
+    RegistryId(i32),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum IdSet {
+    Tag(Identifier),
+    InlineIds(Vec<i32>),
+}
+
+impl ContextualCodec<Ctx> for IdSet {
+    fn encode_with_ctx(&self, buf: &mut Vec<u8>, _ctx: &Ctx) -> Result<(), TypeCodecError> {
+        match self {
+            Self::Tag(tag_name) => {
+                buf.write_varint(0)?;
+                tag_name.encode(buf)
+            }
+            Self::InlineIds(ids) => {
+                let len = i32::try_from(ids.len()).map_err(|_| TypeCodecError::InvalidArrayLength(i32::MAX))?;
+                let ty = len
+                    .checked_add(1)
+                    .ok_or(TypeCodecError::InvalidArrayLength(len))?;
+                buf.write_varint(ty)?;
+                for id in ids {
+                    buf.write_varint(*id)?;
+                }
+                Ok(())
+            }
+        }
+    }
+
+    fn decode_with_ctx(buf: &mut &[u8], _ctx: &Ctx) -> Result<Self, TypeCodecError> {
+        let ty = buf.read_varint()?;
+        if ty < 0 {
+            return Err(TypeCodecError::InvalidArrayLength(ty));
+        }
+        if ty == 0 {
+            Ok(Self::Tag(Identifier::decode(buf)?))
+        } else {
+            let len = usize::try_from(ty - 1).map_err(|_| TypeCodecError::InvalidArrayLength(ty))?;
+            let mut ids = Vec::with_capacity(len);
+            for _ in 0..len {
+                ids.push(buf.read_varint()?);
+            }
+            Ok(Self::InlineIds(ids))
+        }
+    }
+}
+
+impl<T> ContextualCodec<Ctx> for IdOr<T>
+where
+    T: Codec,
+{
+    fn encode_with_ctx(&self, buf: &mut Vec<u8>, _ctx: &Ctx) -> Result<(), TypeCodecError> {
+        match self {
+            Self::Inline(value) => {
+                buf.write_varint(0)?;
+                value.encode(buf)
+            }
+            Self::RegistryId(id) => {
+                if *id < 0 {
+                    return Err(TypeCodecError::InvalidIdOrValue(*id));
+                }
+                buf.write_varint(*id + 1)?;
+                Ok(())
+            }
+        }
+    }
+
+    fn decode_with_ctx(buf: &mut &[u8], _ctx: &Ctx) -> Result<Self, TypeCodecError> {
+        let raw = buf.read_varint()?;
+        if raw < 0 {
+            return Err(TypeCodecError::InvalidIdOrValue(raw));
+        }
+        if raw == 0 {
+            Ok(Self::Inline(T::decode(buf)?))
+        } else {
+            Ok(Self::RegistryId(raw - 1)) // 游标
+        }
+    }
+}
+
 
 // 对于X Enum / EnumSet (N) : 遇到一个写一个，用泛型史到飞起来
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct SoundEvent {
+    pub sound_name: Identifier,
+    pub fixed_range: Option<Float>,
+}
+
+impl SoundEvent {
+    pub const fn new(sound_name: Identifier, fixed_range: Option<Float>) -> Self {
+        Self {
+            sound_name,
+            fixed_range,
+        }
+    }
+    pub fn has_fixed_range(&self) -> bool {
+        self.fixed_range.is_some()
+    }
+}
+
+impl Codec for SoundEvent {
+    fn encode(&self, buf: &mut Vec<u8>) -> Result<(), TypeCodecError> {
+        self.sound_name.encode(buf)?;
+        if let Some(fixed_range) = &self.fixed_range {
+            true.encode(buf)?;
+            fixed_range.encode(buf)
+        } else {
+            false.encode(buf)
+        }
+    }
+
+    fn decode(buf: &mut &[u8]) -> Result<Self, TypeCodecError>
+    where
+        Self: Sized
+    {
+        let sound_name = Identifier::decode(buf)?;
+        let has_fixed_range = bool::decode(buf)?;
+
+        if has_fixed_range {
+            Ok(SoundEvent {
+                sound_name,
+                fixed_range: Some(Float::decode(buf)?)
+            })
+        } else {
+            Ok(SoundEvent {
+                sound_name,
+                fixed_range: None
+            })
+        }
+    }
+}

@@ -27,6 +27,8 @@ pub enum TypeCodecError {
     MissingContext(&'static str),
     #[error("Context mismatch: {0}")]
     ContextMismatch(&'static str),
+    #[error("Invalid ID-or-X value: {0}")]
+    InvalidIdOrValue(i32),
     #[error("Codec error: {0}")]
     CodecError(#[from] CodecError),
     #[error("Invalid utf8")]
