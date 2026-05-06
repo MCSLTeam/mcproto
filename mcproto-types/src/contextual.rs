@@ -42,7 +42,15 @@ impl<T> PrefixedOptional<T> {
         Self(value)
     }
 }
+impl<T: Codec> Codec for PrefixedOptional<T> {
+    fn encode(&self, buf: &mut Vec<u8>) -> Result<(), TypeCodecError> {
+        self.encode_with_ctx(buf, &Ctx::none())
+    }
 
+    fn decode(buf: &mut &[u8]) -> Result<Self, TypeCodecError> {
+        Self::decode_with_ctx(buf, &Ctx::none())
+    }
+}
 impl<T> ContextualCodec<Ctx> for PrefixedOptional<T>
 where T: Codec,
 {
@@ -110,7 +118,15 @@ impl<T> PrefixedArray<T> {
         Self(values)
     }
 }
+impl<T: Codec> Codec for PrefixedArray<T> {
+    fn encode(&self, buf: &mut Vec<u8>) -> Result<(), TypeCodecError> {
+        self.encode_with_ctx(buf, &Ctx::none())
+    }
 
+    fn decode(buf: &mut &[u8]) -> Result<Self, TypeCodecError> {
+        Self::decode_with_ctx(buf, &Ctx::none())
+    }
+}
 impl<T> ContextualCodec<Ctx> for PrefixedArray<T>
 where
     T: Codec,
