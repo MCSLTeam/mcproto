@@ -33,6 +33,8 @@ pub enum TypeCodecError {
     CodecError(#[from] CodecError),
     #[error("Invalid utf8")]
     InvalidUtf8,
+    #[error("NBT tag unknown: {0}")]
+    UnknownNbtTag(u8),
 }
 pub trait Codec {
     fn encode(&self, buf: &mut Vec<u8>) -> Result<(), TypeCodecError>;

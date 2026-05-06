@@ -408,7 +408,71 @@ impl Codec for UUID {
     }
 }
 // TODO: EntityMetadata
-// TODO: NBT
 // TODO: Slot
 // TODO: Hashed Slot
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Nbt(Vec<u8>);
+impl Codec for Nbt {
+    fn encode(&self, buf: &mut Vec<u8>) -> Result<(), TypeCodecError> {
+        buf.extend_from_slice(&self.0);
+        Ok(())
+    }
+
+    fn decode(buf: &mut &[u8]) -> Result<Self, TypeCodecError> {
+        let start = *buf;
+        let mut pos = 0;
+        let mut depth: i32 = 1;
+
+        while depth > 0 {
+            let tag_id = start.get(pos).ok_or(TypeCodecError::EndOfBuffer(pos, pos + 1))?;
+            pos += 1;
+
+            if *tag_id == 0x00 {
+                depth -= 1;
+                continue;
+            }
+
+            // 跳过名字（u16 长度 + 字节）
+            let name_len = u16::from_be_bytes([
+                start[pos], start[pos + 1]
+            ]) as usize;
+            pos += 2 + name_len;
+
+            // 根据类型跳过值
+            pos = skip_value(start, pos, *tag_id)?;
+
+            if *tag_id == 0x0A {
+                depth += 1;
+            }
+        }
+
+        *buf = &buf[pos..];
+        Ok(Nbt(start[..pos].to_vec()))
+    }
+}
+
+fn skip_value(buf: &[u8], pos: usize, tag_id: u8) -> Result<usize, TypeCodecError> {
+    match tag_id {
+        0x01 => Ok(pos + 1),                          // Byte
+        0x02 | 0x08 => {                               // Short | String (skip len + bytes)
+            let len = u16::from_be_bytes([buf[pos], buf[pos + 1]]) as usize;
+            Ok(pos + 2 + if tag_id == 0x08 { len } else { 2 })
+        }
+        0x03 | 0x05 | 0x07 | 0x0B => {                 // Int | Float | ByteArray | IntArray
+            let len = i32::from_be_bytes([buf[pos], buf[pos+1], buf[pos+2], buf[pos+3]]);
+            if len < 0 { return Err(TypeCodecError::InvalidArrayLength(len)); }
+            let size = if tag_id == 0x07 { len } else if tag_id == 0x0B { len * 4 } else { 4 };
+            Ok(pos + 4 + size as usize)
+        }
+        0x04 | 0x06 | 0x0C => {                         // Long | Double | LongArray
+            let len = if tag_id == 0x0C {
+                let l = i32::from_be_bytes([buf[pos], buf[pos+1], buf[pos+2], buf[pos+3]]);
+                if l < 0 { return Err(TypeCodecError::InvalidArrayLength(l)); }
+                l * 8
+            } else { 8 };
+            Ok(pos + (if tag_id == 0x0C { 4 } else { 0 }) + len as usize)
+        }
+        _ => Err(TypeCodecError::UnknownNbtTag(tag_id))
+    }
+}
