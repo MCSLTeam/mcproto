@@ -2,7 +2,7 @@
 resolver = "3"
 members = [
     "mcproto", # 主Crate，几乎是空的，用于控制feature
-    "mcproto-codec", "mcproto-nbt", # Codec,包括VarInt，加密，压缩
+    "mcproto-codec", # Codec,包括VarInt，加密，压缩
     "mcproto-types" # 所有mc的类型
 ]
 
@@ -15,5 +15,4 @@ repository = "https://github.com/MCSLTeam/mcproto"
 
 [workspace.dependencies]
 mcproto-codec = { path = "./mcproto-codec", version = "0.1.4-alpha.3" }
-mcproto-nbt = { path = "./mcproto-nbt", version = "0.1.4-alpha.3" }
 mcproto-types = { path = "./mcproto-types", version = "0.1.4-alpha.3" }
