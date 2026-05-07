@@ -1,6 +1,6 @@
 use crate::basic::{Double, Identifier, VarInt};
 use crate::compound::component::{Component, ComponentType};
-use crate::compound::enums::PredicateType;
+use crate::compound::enums::{AttributeOperation, EquipmentSlot, PredicateType};
 use crate::compound::Nbt;
 use crate::contextual::{IdSet, Optional, PrefixedArray, PrefixedOptional};
 use crate::{Codec, ContextualCodec, Ctx, TypeCodecError};
@@ -126,8 +126,8 @@ pub struct AttributeModifier {
     pub attribute_id: VarInt,
     pub modifier_id: Identifier,
     pub value: Double,
-    pub operation: VarInt,
-    pub slot: VarInt,
+    pub operation: AttributeOperation,
+    pub slot: EquipmentSlot,
 }
 
 
@@ -146,8 +146,8 @@ impl Codec for AttributeModifier {
             attribute_id: VarInt::decode(buf)?,
             modifier_id: Identifier::decode(buf)?,
             value: Double::decode(buf)?,
-            operation: VarInt::decode(buf)?,
-            slot: VarInt::decode(buf)?,
+            operation: AttributeOperation::decode(buf)?,
+            slot: EquipmentSlot::decode(buf)?,
         })
     }
 }

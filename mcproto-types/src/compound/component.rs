@@ -4,7 +4,7 @@ use crate::contextual::{PrefixedArray};
 use crate::Codec;
 use crate::TypeCodecError;
 use num_enum::{FromPrimitive, IntoPrimitive};
-use crate::compound::subtypes::BlockPredicate;
+use crate::compound::subtypes::{AttributeModifier, BlockPredicate};
 
 impl Codec for (VarInt, VarInt) {
     fn encode(&self, buf: &mut Vec<u8>) -> Result<(), TypeCodecError> {
@@ -33,6 +33,8 @@ pub enum ComponentType {
     Rarity = 9,
     Enchantments = 10,
     CanPlaceOn = 11,
+    CanBreak = 12,
+    AttributeModifiers = 13,
     #[num_enum(catch_all)]
     Unknown(i32) = -1,
 }
@@ -65,6 +67,8 @@ pub enum Component {
     Enchantments(PrefixedArray<(VarInt, VarInt)>),
     // todo: 所有附魔的枚举
     CanPlaceOn(PrefixedArray<BlockPredicate>),
+    CanBreak(PrefixedArray<BlockPredicate>),
+    AttributeModifiers(AttributeModifier),
 }
 fn encode_component<T: Codec>(ty: ComponentType, value: &T, buf: &mut Vec<u8>) -> Result<(), TypeCodecError> {
     ty.encode(buf)?;
@@ -84,7 +88,9 @@ impl Codec for Component {
             Self::Lore(v) => encode_component(ComponentType::Lore, v, buf),
             Self::Rarity(v) => encode_component(ComponentType::Rarity, v, buf),
             Self::Enchantments(v) => encode_component(ComponentType::Enchantments, v, buf),
-            Self::CanPlaceOn(v) => encode_component(ComponentType::CanPlaceOn, v, buf)
+            Self::CanPlaceOn(v) => encode_component(ComponentType::CanPlaceOn, v, buf),
+            Self::CanBreak(v) => encode_component(ComponentType::CanBreak, v, buf),
+            Self::AttributeModifiers(v) => encode_component(ComponentType::AttributeModifiers, v, buf)
         }
     }
 
@@ -103,6 +109,8 @@ impl Codec for Component {
             ComponentType::Rarity => Ok(Self::Rarity(VarInt::decode(buf)?)),
             ComponentType::Enchantments => Ok(Self::Enchantments(PrefixedArray::decode(buf)?)),
             ComponentType::CanPlaceOn => Ok(Self::CanPlaceOn(PrefixedArray::decode(buf)?)),
+            ComponentType::CanBreak => Ok(Self::CanBreak(PrefixedArray::decode(buf)?)),
+            ComponentType::AttributeModifiers => Ok(Self::AttributeModifiers(AttributeModifier::decode(buf)?)),
             ComponentType::Unknown(id) => Err(TypeCodecError::UnknownComponentType(id as u8)),
 
         }
