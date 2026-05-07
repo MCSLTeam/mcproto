@@ -35,6 +35,10 @@ pub enum TypeCodecError {
     InvalidUtf8,
     #[error("NBT tag unknown: {0}")]
     UnknownNbtTag(u8),
+    #[error("Unknown component type: {0}")]
+    UnknownComponentType(u8),
+    #[error("Unknown enum value {0} in {1}")]
+    UnknownEnumValue(i32, String),
 }
 pub trait Codec {
     fn encode(&self, buf: &mut Vec<u8>) -> Result<(), TypeCodecError>;
@@ -43,12 +47,24 @@ pub trait Codec {
         Self: Sized;
 }
 
+#[derive(Default)]
 pub struct Ctx {
     pub present: Option<bool>,      // Optional
     pub len: Option<usize>,         // Array / fixed bytes
     pub bits: Option<usize>,        // FixedBitSet(n)
     pub max_chars: Option<usize>,   // String/Text limit
     pub tag: Option<i32>,           // union/enum selector
+}
+impl Ctx {
+    pub fn none() -> Self {
+        Self {
+            present: None,
+            len: None,
+            bits: None,
+            max_chars: None,
+            tag: None
+        }
+    }
 }
 
 

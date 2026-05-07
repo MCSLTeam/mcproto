@@ -1,5 +1,10 @@
-use derive_more::with_trait::{Into, Deref, DerefMut, From};
+pub mod component;
+pub mod enums;
+pub mod subtypes;
+
+use crate::basic::VarInt;
 use crate::{Codec, TypeCodecError};
+use derive_more::with_trait::{Deref, DerefMut, From, Into};
 use mcproto_codec::{VarIntRead, VarIntWrite};
 use uuid::Uuid;
 

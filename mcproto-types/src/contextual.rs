@@ -84,6 +84,14 @@ impl<T> Array<T> {
         Self(values)
     }
 }
+impl<T: Codec> Codec for Array<T> {
+    fn encode(&self, buf: &mut Vec<u8>) -> Result<(), TypeCodecError> {
+        self.encode_with_ctx(buf, &Ctx { len: Some(self.0.len()), ..Default::default() })
+    }
+    fn decode(_buf: &mut &[u8]) -> Result<Self, TypeCodecError> {
+        Err(TypeCodecError::MissingContext("len"))
+    }
+}
 impl<T> ContextualCodec<Ctx> for Array<T>
 where
     T: Codec
@@ -162,6 +170,14 @@ impl ByteArray {
         Self(values)
     }
 }
+impl Codec for ByteArray {
+    fn encode(&self, buf: &mut Vec<u8>) -> Result<(), TypeCodecError> {
+        self.encode_with_ctx(buf, &Ctx { len: Some(self.0.len()), ..Default::default() })
+    }
+    fn decode(_buf: &mut &[u8]) -> Result<Self, TypeCodecError> {
+        Err(TypeCodecError::MissingContext("len"))
+    }
+}
 
 impl ContextualCodec<Ctx> for ByteArray {
     fn encode_with_ctx(&self, buf: &mut Vec<u8>, ctx: &Ctx) -> Result<(), TypeCodecError> {
@@ -184,16 +200,19 @@ impl ContextualCodec<Ctx> for ByteArray {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum IdOr<T> {
-    Inline(T),
-    RegistryId(i32),
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum IdSet {
     Tag(Identifier),
     InlineIds(Vec<i32>),
+}
+impl Codec for IdSet {
+    fn encode(&self, buf: &mut Vec<u8>) -> Result<(), TypeCodecError> {
+        self.encode_with_ctx(buf, &Ctx::none())
+    }
+    fn decode(buf: &mut &[u8]) -> Result<Self, TypeCodecError> {
+        Self::decode_with_ctx(buf, &Ctx::none())
+    }
 }
 
 impl ContextualCodec<Ctx> for IdSet {
@@ -232,6 +251,20 @@ impl ContextualCodec<Ctx> for IdSet {
             }
             Ok(Self::InlineIds(ids))
         }
+    }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum IdOr<T> {
+    Inline(T),
+    RegistryId(i32),
+}
+
+impl<T: Codec> Codec for IdOr<T> {
+    fn encode(&self, buf: &mut Vec<u8>) -> Result<(), TypeCodecError> {
+        self.encode_with_ctx(buf, &Ctx::none())
+    }
+    fn decode(buf: &mut &[u8]) -> Result<Self, TypeCodecError> {
+        Self::decode_with_ctx(buf, &Ctx::none())
     }
 }
 
@@ -320,3 +353,4 @@ impl Codec for SoundEvent {
         }
     }
 }
+

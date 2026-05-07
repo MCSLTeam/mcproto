@@ -22,11 +22,11 @@ cargo bench
 
 use mcproto_codec::*;
 fn main() {
-    let mut buf: Vec<u8> = Vec::new();
+    let mut _buf: Vec<u8> = Vec::new();
     // Write
-    buf.write_varint(2147483647).unwrap();
+    _buf.write_varint(2147483647).unwrap();
     // Read
-    let value: i32 = buf.as_slice().read_varint().unwrap();
+    let value: i32 = _buf.as_slice().read_varint().unwrap();
     assert_eq!(value, 2147483647);
 }
 ```
