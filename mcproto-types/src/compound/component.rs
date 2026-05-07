@@ -4,7 +4,10 @@ use crate::contextual::{PrefixedArray};
 use crate::Codec;
 use crate::TypeCodecError;
 use num_enum::{FromPrimitive, IntoPrimitive};
-use crate::compound::subtypes::{AttributeModifier, BlockPredicate};
+use thiserror::__private18::Var;
+use crate::compound::enums::ConsumeEffectData;
+use crate::compound::subtypes::{AttributeModifier, BlockPredicate, Consumable, CustomModelData, Food, TooltipDisplay};
+use crate::TypeCodecError::UnknownComponentType;
 
 impl Codec for (VarInt, VarInt) {
     fn encode(&self, buf: &mut Vec<u8>) -> Result<(), TypeCodecError> {
@@ -35,6 +38,88 @@ pub enum ComponentType {
     CanPlaceOn = 11,
     CanBreak = 12,
     AttributeModifiers = 13,
+    CustomModelData = 14,
+    TooltipDisplay = 15,
+    RepairCost = 16,
+    CreativeSlotLock = 17,
+    EnchantmentGlintOverride = 18,
+    IntangibleProjectile = 19,
+    Food = 20,
+    Consumable = 21,
+    UseRemainder = 22,
+    UseCooldown = 23,
+    DamageResistant = 24,
+    Tool = 25,
+    Weapon = 26,
+    Enchantable = 27,
+    Equippable = 28,
+    Repairable = 29,
+    Glider = 30,
+    TooltipStyle = 31,
+    DeathProtection = 32,
+    BlocksAttacks = 33,
+    StoredEnchantments = 34,
+    DyedColor = 35,
+    MapColor = 36,
+    MapId = 37,
+    MapDecorations = 38,
+    MapPostProcessing = 39,
+    ChargedProjectiles = 40,
+    BundleContents = 41,
+    PotionContents = 42,
+    PotionDurationScale = 43,
+    SuspiciousStewEffects = 44,
+    WritableBookContent = 45,
+    WrittenBookContent = 46,
+    Trim = 47,
+    DebugStickState = 48,
+    EntityData = 49,
+    BucketEntityData = 50,
+    BlockEntityData = 51,
+    Instrument = 52,
+    ProvidesTrimMaterial = 53,
+    OminousBottleAmplifier = 54,
+    JukeboxPlayable = 55,
+    ProvidesBannerPatterns = 56,
+    Recipes = 57,
+    LodestoneTracker = 58,
+    FireworkExplosion = 59,
+    Fireworks = 60,
+    Profile = 61,
+    NoteBlockSound = 62,
+    BannerPatterns = 63,
+    BaseColor = 64,
+    PotDecorations = 65,
+    Container = 66,
+    BlockState = 67,
+    Bees = 68,
+    Lock = 69,
+    ContainerLoot = 70,
+    BreakSound = 71,
+    VillagerVariant = 72,
+    WolfVariant = 73,
+    WolfSoundVariant = 74,
+    WolfCollar = 75,
+    FoxVariant = 76,
+    SalmonSize = 77,
+    ParrotVariant = 78,
+    TropicalFishPattern = 79,
+    TropicalFishBaseColor = 80,
+    TropicalFishPatternColor = 81,
+    MooshroomVariant = 82,
+    RabbitVariant = 83,
+    PigVariant = 84,
+    CowVariant = 85,
+    ChickenVariant = 86,
+    FrogVariant = 87,
+    HorseVariant = 88,
+    PaintingVariant = 89,
+    LlamaVariant = 90,
+    AxolotlVariant = 91,
+    CatVariant = 92,
+    CatCollar = 93,
+    SheepColor = 94,
+    ShulkerColor = 95,
     #[num_enum(catch_all)]
     Unknown(i32) = -1,
 }
@@ -69,6 +154,14 @@ pub enum Component {
     CanPlaceOn(PrefixedArray<BlockPredicate>),
     CanBreak(PrefixedArray<BlockPredicate>),
     AttributeModifiers(AttributeModifier),
+    CustomModelData(CustomModelData),
+    TooltipDisplay(TooltipDisplay),
+    RepairCost(VarInt),
+    CreativeSlotLock,
+    EnchantmentGlintOverride(bool),
+    IntangibleProjectile(Nbt),
+    Food(Food),
+    Consumable(Consumable),
 }
 fn encode_component<T: Codec>(ty: ComponentType, value: &T, buf: &mut Vec<u8>) -> Result<(), TypeCodecError> {
     ty.encode(buf)?;
@@ -90,13 +183,23 @@ impl Codec for Component {
             Self::Enchantments(v) => encode_component(ComponentType::Enchantments, v, buf),
             Self::CanPlaceOn(v) => encode_component(ComponentType::CanPlaceOn, v, buf),
             Self::CanBreak(v) => encode_component(ComponentType::CanBreak, v, buf),
-            Self::AttributeModifiers(v) => encode_component(ComponentType::AttributeModifiers, v, buf)
+            Self::AttributeModifiers(v) => encode_component(ComponentType::AttributeModifiers, v, buf),
+            Self::CustomModelData(v) => encode_component(ComponentType::CustomModelData, v, buf),
+            Self::TooltipDisplay(v) => encode_component(ComponentType::TooltipDisplay, v, buf),
+            Self::RepairCost(v) => encode_component(ComponentType::RepairCost, v, buf),
+            Self::CreativeSlotLock => ComponentType::CreativeSlotLock.encode(buf),
+            Self::EnchantmentGlintOverride(v) => encode_component(ComponentType::EnchantmentGlintOverride, v, buf),
+            Self::IntangibleProjectile(v) => encode_component(ComponentType::IntangibleProjectile, v, buf),
+            Self::Food(v) => encode_component(ComponentType::Food, v, buf),
+            Self::Consumable(v) => encode_component(ComponentType::Consumable, v, buf),
+            _ => Err(UnknownComponentType(127)),
         }
     }
 
     fn decode(buf: &mut &[u8]) -> Result<Self, TypeCodecError> {
         let comp_type = ComponentType::decode(buf)?;
         match comp_type {
+            ComponentType::Unknown(id) => Err(UnknownComponentType(id as u8)),
             ComponentType::CustomData => Ok(Self::CustomData(Nbt::decode(buf)?)),
             ComponentType::MaxStackSize => Ok(Self::MaxStackSize(VarInt::decode(buf)?)),
             ComponentType::MaxDamage => Ok(Self::MaxDamage(VarInt::decode(buf)?)),
@@ -111,7 +214,15 @@ impl Codec for Component {
             ComponentType::CanPlaceOn => Ok(Self::CanPlaceOn(PrefixedArray::decode(buf)?)),
             ComponentType::CanBreak => Ok(Self::CanBreak(PrefixedArray::decode(buf)?)),
             ComponentType::AttributeModifiers => Ok(Self::AttributeModifiers(AttributeModifier::decode(buf)?)),
-            ComponentType::Unknown(id) => Err(TypeCodecError::UnknownComponentType(id as u8)),
+            ComponentType::CustomModelData => Ok(Self::CustomModelData(CustomModelData::decode(buf)?)),
+            ComponentType::TooltipDisplay => Ok(Self::TooltipDisplay(TooltipDisplay::decode(buf)?)),
+            ComponentType::RepairCost => Ok(Self::RepairCost(VarInt::decode(buf)?)),
+            ComponentType::CreativeSlotLock => Ok(Self::CreativeSlotLock),
+            ComponentType::EnchantmentGlintOverride => Ok(Self::EnchantmentGlintOverride(bool::decode(buf)?)),
+            ComponentType::IntangibleProjectile => Ok(Self::IntangibleProjectile(Nbt::decode(buf)?)),
+            ComponentType::Food => Ok(Self::Food(Food::decode(buf)?)),
+            ComponentType::Consumable => Ok(Self::Consumable(Consumable::decode(buf)?)),
+
 
         }
     }
