@@ -426,58 +426,132 @@ impl Codec for Nbt {
 
     fn decode(buf: &mut &[u8]) -> Result<Self, TypeCodecError> {
         let start = *buf;
-        let mut pos = 0;
-        let mut depth: i32 = 1;
+        let mut pos = 0usize;
+        skip_named_tag(start, &mut pos)?;
 
-        while depth > 0 {
-            let tag_id = start.get(pos).ok_or(TypeCodecError::EndOfBuffer(pos, pos + 1))?;
-            pos += 1;
-
-            if *tag_id == 0x00 {
-                depth -= 1;
-                continue;
-            }
-
-            // 跳过名字（u16 长度 + 字节）
-            let name_len = u16::from_be_bytes([
-                start[pos], start[pos + 1]
-            ]) as usize;
-            pos += 2 + name_len;
-
-            // 根据类型跳过值
-            pos = skip_value(start, pos, *tag_id)?;
-
-            if *tag_id == 0x0A {
-                depth += 1;
-            }
-        }
-
-        *buf = &buf[pos..];
+        *buf = &start[pos..];
         Ok(Nbt(start[..pos].to_vec()))
     }
 }
 
-fn skip_value(buf: &[u8], pos: usize, tag_id: u8) -> Result<usize, TypeCodecError> {
+fn read_u8(buf: &[u8], pos: &mut usize) -> Result<u8, TypeCodecError> {
+    let b = *buf
+        .get(*pos)
+        .ok_or(TypeCodecError::EndOfBuffer(*pos, *pos + 1))?;
+    *pos += 1;
+    Ok(b)
+}
+
+fn skip_bytes(buf: &[u8], pos: &mut usize, n: usize) -> Result<(), TypeCodecError> {
+    let end = pos
+        .checked_add(n)
+        .ok_or(TypeCodecError::EndOfBuffer(*pos, usize::MAX))?;
+    if end > buf.len() {
+        return Err(TypeCodecError::EndOfBuffer(buf.len(), end));
+    }
+    *pos = end;
+    Ok(())
+}
+
+fn read_i32_be(buf: &[u8], pos: &mut usize) -> Result<i32, TypeCodecError> {
+    let end = pos
+        .checked_add(4)
+        .ok_or(TypeCodecError::EndOfBuffer(*pos, usize::MAX))?;
+    let bytes: [u8; 4] = buf
+        .get(*pos..end)
+        .ok_or(TypeCodecError::EndOfBuffer(buf.len(), end))?
+        .try_into()
+        .map_err(|_| TypeCodecError::EndOfBuffer(buf.len(), end))?;
+    *pos = end;
+    Ok(i32::from_be_bytes(bytes))
+}
+
+fn read_u16_be(buf: &[u8], pos: &mut usize) -> Result<u16, TypeCodecError> {
+    let end = pos
+        .checked_add(2)
+        .ok_or(TypeCodecError::EndOfBuffer(*pos, usize::MAX))?;
+    let bytes: [u8; 2] = buf
+        .get(*pos..end)
+        .ok_or(TypeCodecError::EndOfBuffer(buf.len(), end))?
+        .try_into()
+        .map_err(|_| TypeCodecError::EndOfBuffer(buf.len(), end))?;
+    *pos = end;
+    Ok(u16::from_be_bytes(bytes))
+}
+
+fn skip_string(buf: &[u8], pos: &mut usize) -> Result<(), TypeCodecError> {
+    let len = read_u16_be(buf, pos)? as usize;
+    skip_bytes(buf, pos, len)
+}
+
+fn skip_named_tag(buf: &[u8], pos: &mut usize) -> Result<(), TypeCodecError> {
+    let tag_id = read_u8(buf, pos)?;
+    if tag_id == 0x00 {
+        return Err(TypeCodecError::UnknownNbtTag(tag_id));
+    }
+    skip_string(buf, pos)?; // name
+    skip_tag_payload(buf, pos, tag_id)
+}
+
+fn skip_tag_payload(buf: &[u8], pos: &mut usize, tag_id: u8) -> Result<(), TypeCodecError> {
     match tag_id {
-        0x01 => Ok(pos + 1),                          // Byte
-        0x02 | 0x08 => {                               // Short | String (skip len + bytes)
-            let len = u16::from_be_bytes([buf[pos], buf[pos + 1]]) as usize;
-            Ok(pos + 2 + if tag_id == 0x08 { len } else { 2 })
+        0x00 => Ok(()), // End (仅用于 Compound 内部)
+        0x01 => skip_bytes(buf, pos, 1), // Byte
+        0x02 => skip_bytes(buf, pos, 2), // Short
+        0x03 => skip_bytes(buf, pos, 4), // Int
+        0x04 => skip_bytes(buf, pos, 8), // Long
+        0x05 => skip_bytes(buf, pos, 4), // Float
+        0x06 => skip_bytes(buf, pos, 8), // Double
+        0x07 => {
+            let len = read_i32_be(buf, pos)?;
+            if len < 0 {
+                return Err(TypeCodecError::InvalidArrayLength(len));
+            }
+            skip_bytes(buf, pos, len as usize)
         }
-        0x03 | 0x05 | 0x07 | 0x0B => {                 // Int | Float | ByteArray | IntArray
-            let len = i32::from_be_bytes([buf[pos], buf[pos+1], buf[pos+2], buf[pos+3]]);
-            if len < 0 { return Err(TypeCodecError::InvalidArrayLength(len)); }
-            let size = if tag_id == 0x07 { len } else if tag_id == 0x0B { len * 4 } else { 4 };
-            Ok(pos + 4 + size as usize)
+        0x08 => skip_string(buf, pos), // String
+        0x09 => {
+            let elem_tag = read_u8(buf, pos)?;
+            let len = read_i32_be(buf, pos)?;
+            if len < 0 {
+                return Err(TypeCodecError::InvalidArrayLength(len));
+            }
+            for _ in 0..(len as usize) {
+                skip_tag_payload(buf, pos, elem_tag)?;
+            }
+            Ok(())
         }
-        0x04 | 0x06 | 0x0C => {                         // Long | Double | LongArray
-            let len = if tag_id == 0x0C {
-                let l = i32::from_be_bytes([buf[pos], buf[pos+1], buf[pos+2], buf[pos+3]]);
-                if l < 0 { return Err(TypeCodecError::InvalidArrayLength(l)); }
-                l * 8
-            } else { 8 };
-            Ok(pos + (if tag_id == 0x0C { 4 } else { 0 }) + len as usize)
+        0x0A => {
+            loop {
+                let inner_tag = read_u8(buf, pos)?;
+                if inner_tag == 0x00 {
+                    break; // TAG_End
+                }
+                skip_string(buf, pos)?; // field name
+                skip_tag_payload(buf, pos, inner_tag)?;
+            }
+            Ok(())
         }
-        _ => Err(TypeCodecError::UnknownNbtTag(tag_id))
+        0x0B => {
+            let len = read_i32_be(buf, pos)?;
+            if len < 0 {
+                return Err(TypeCodecError::InvalidArrayLength(len));
+            }
+            let bytes_len = (len as usize)
+                .checked_mul(4)
+                .ok_or(TypeCodecError::InvalidArrayLength(i32::MAX))?;
+            skip_bytes(buf, pos, bytes_len)
+        }
+        0x0C => {
+            let len = read_i32_be(buf, pos)?;
+            if len < 0 {
+                return Err(TypeCodecError::InvalidArrayLength(len));
+            }
+            let bytes_len = (len as usize)
+                .checked_mul(8)
+                .ok_or(TypeCodecError::InvalidArrayLength(i32::MAX))?;
+            skip_bytes(buf, pos, bytes_len)
+        }
+        _ => Err(TypeCodecError::UnknownNbtTag(tag_id)),
     }
 }
