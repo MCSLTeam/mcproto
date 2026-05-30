@@ -1,5 +1,5 @@
 use crate::basic::{Double, Float, Identifier, Int, VarInt};
-use crate::compound::component::{Component, ComponentType};
+use crate::compound::structured_component::{Component, ComponentType};
 use crate::compound::enums::{AttributeOperation, ConsumableAnimation, ConsumeEffectData, EquipmentSlot, PredicateType};
 use crate::compound::Nbt;
 use crate::contextual::{IdOr, IdSet, Optional, PrefixedArray, PrefixedOptional, SoundEvent};

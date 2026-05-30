@@ -1,5 +1,5 @@
 use crate::basic::Identifier;
-use crate::compound::{Nbt, TextComponent, VarInt};
+use crate::compound::{Nbt, Slot, TextComponent, VarInt};
 use crate::contextual::{PrefixedArray};
 use crate::Codec;
 use crate::TypeCodecError;
@@ -162,6 +162,7 @@ pub enum Component {
     IntangibleProjectile(Nbt),
     Food(Food),
     Consumable(Consumable),
+    UseRemainder(Slot),
 }
 fn encode_component<T: Codec>(ty: ComponentType, value: &T, buf: &mut Vec<u8>) -> Result<(), TypeCodecError> {
     ty.encode(buf)?;
@@ -192,6 +193,7 @@ impl Codec for Component {
             Self::IntangibleProjectile(v) => encode_component(ComponentType::IntangibleProjectile, v, buf),
             Self::Food(v) => encode_component(ComponentType::Food, v, buf),
             Self::Consumable(v) => encode_component(ComponentType::Consumable, v, buf),
+            Self::UseRemainder(v) => encode_component(ComponentType::UseRemainder, v, buf),
             _ => Err(UnknownComponentType(127)),
         }
     }
@@ -222,7 +224,7 @@ impl Codec for Component {
             ComponentType::IntangibleProjectile => Ok(Self::IntangibleProjectile(Nbt::decode(buf)?)),
             ComponentType::Food => Ok(Self::Food(Food::decode(buf)?)),
             ComponentType::Consumable => Ok(Self::Consumable(Consumable::decode(buf)?)),
-
+            ComponentType::UseRemainder => Ok(Self::UseRemainder(Slot::decode(buf)?)),
 
         }
     }

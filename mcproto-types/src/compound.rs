@@ -1,12 +1,14 @@
-pub mod component;
+pub mod structured_component;
 pub mod enums;
 pub mod subtypes;
 
 use crate::basic::VarInt;
-use crate::{Codec, TypeCodecError};
+use crate::{Codec, ContextualCodec, Ctx, TypeCodecError};
 use derive_more::with_trait::{Deref, DerefMut, From, Into};
 use mcproto_codec::{VarIntRead, VarIntWrite};
 use uuid::Uuid;
+use crate::compound::structured_component::Component;
+use crate::contextual::{Array, Optional};
 
 const MAX_TEXT_COMPONENT_DECODE_CHARS: usize = 262_144;
 const MAX_TEXT_COMPONENT_ENCODE_CHARS: usize = 32_767;
@@ -415,6 +417,59 @@ impl Codec for UUID {
 // TODO: EntityMetadata
 // TODO: Slot
 // TODO: Hashed Slot
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Slot {
+    pub item_count: VarInt,
+    pub item_id: Optional<VarInt>,
+    pub number_to_add: Optional<VarInt>,
+    pub number_to_remove: Optional<VarInt>,
+    pub components_to_add: Optional<Array<Component>>,
+    pub components_to_remove: Optional<Array<Component>>,
+}
+impl Codec for Slot {
+    fn encode(&self, buf: &mut Vec<u8>) -> Result<(), TypeCodecError> {
+        self.item_count.encode(buf)?;
+        self.item_id.encode_with_ctx(buf, &Ctx::none())?;
+        self.number_to_add.encode_with_ctx(buf, &Ctx::none())?;
+        self.number_to_remove.encode_with_ctx(buf, &Ctx::none())?;
+        self.components_to_add.encode_with_ctx(buf, &Ctx::none())?;
+        self.components_to_remove.encode_with_ctx(buf, &Ctx::none())?;
+        Ok(())
+    }
+    fn decode(buf: &mut &[u8]) -> Result<Self, TypeCodecError> {
+        let item_count = VarInt::decode(buf)?;
+
+        if item_count.0 <= 0 {
+            return Ok(Slot {
+                item_count,
+                item_id: Optional(None),
+                number_to_add: Optional(None),
+                number_to_remove: Optional(None),
+                components_to_add: Optional(None),
+                components_to_remove: Optional(None),
+            });
+        }
+
+        let present_ctx = Ctx { present: Some(true), ..Default::default() };
+
+        let item_id = Optional::<VarInt>::decode_with_ctx(buf, &present_ctx)?;
+        let number_to_add = Optional::<VarInt>::decode_with_ctx(buf, &present_ctx)?;
+        let number_to_remove = Optional::<VarInt>::decode_with_ctx(buf, &present_ctx)?;
+        let components_to_add = Optional::<Array<Component>>::decode_with_ctx(buf, &present_ctx)?;
+        let components_to_remove = Optional::<Array<Component>>::decode_with_ctx(buf, &present_ctx)?;
+
+        Ok(Slot {
+            item_count,
+            item_id,
+            number_to_add,
+            number_to_remove,
+            components_to_add,
+            components_to_remove,
+        })
+        }
+    }
+
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Nbt(Vec<u8>);
