@@ -1,13 +1,12 @@
-use crate::basic::Identifier;
+use crate::basic::{Float, Identifier, Int};
 use crate::compound::{Nbt, Slot, TextComponent, VarInt};
-use crate::contextual::{PrefixedArray};
+use crate::contextual::{IdOr, IdSet, PrefixedArray};
 use crate::Codec;
 use crate::TypeCodecError;
 use num_enum::{FromPrimitive, IntoPrimitive};
-use thiserror::__private18::Var;
 use mcproto_derive::ComponentCodec;
-use crate::compound::enums::ConsumeEffectData;
-use crate::compound::subtypes::{AttributeModifier, BlockPredicate, Consumable, Cooldown, CustomModelData, Food, Tool, TooltipDisplay, Weapon};
+use crate::compound::enums::MapPostProcessing;
+use crate::compound::subtypes::{AttributeModifier, BlockPredicate, BlocksAttacks, Consumable, ConsumeEffect, Cooldown, CustomModelData, Effect, Enchantment, EntityData, Equippable, Food, Instrument, Page, PotionContents, Tool, TooltipDisplay, Weapon, WrittenBookContent};
 
 impl Codec for (VarInt, VarInt) {
     fn encode(&self, buf: &mut Vec<u8>) -> Result<(), TypeCodecError> {
@@ -149,7 +148,7 @@ pub enum Component {
     ItemModel(Identifier),
     Lore(PrefixedArray<TextComponent>),
     Rarity(VarInt),
-    Enchantments(PrefixedArray<(VarInt, VarInt)>),
+    Enchantments(PrefixedArray<Enchantment>),
     // todo: 所有附魔的枚举
     CanPlaceOn(PrefixedArray<BlockPredicate>),
     CanBreak(PrefixedArray<BlockPredicate>),
@@ -168,5 +167,30 @@ pub enum Component {
     Tool(Tool),
     Weapon(Weapon),
     Enchantable(VarInt),
+    Equippable(Equippable),
+    Repairable(IdSet),
+    Glider,
+    TooltipStyle(Identifier),
+    DeathProtection(PrefixedArray<ConsumeEffect>),
+    BlocksAttacks(BlocksAttacks),
+    StoredEnchantments(PrefixedArray<Enchantment>),
+    DyedColor(Int),
+    MapColor(Int),
+    MapId(VarInt),
+    MapDecorations(Nbt),
+    MapPostProcessing(MapPostProcessing),
+    ChargedProjectiles(PrefixedArray<Slot>),
+    BundleContents(PrefixedArray<Slot>),
+    PotionContents(PotionContents),
+    PotionDurationScale(Float),
+    SuspiciousStewEffects(PrefixedArray<Effect>),
+    WritableBookContent(PrefixedArray<Page>),
+    WrittenBookContent(WrittenBookContent),
+    DebugStickState(Nbt),
+    EntityData(EntityData),
+    BucketEntityData(Nbt),
+    Instrument(IdOr<Instrument>),
+
+
 
 }

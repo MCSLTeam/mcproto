@@ -94,3 +94,46 @@ pub fn component_codec_derive(input: TokenStream) -> TokenStream {
         }
     })
 }
+#[proc_macro_derive(VarIntEnum)]
+pub fn varint_enum_derive(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let name = &input.ident;
+
+    let variants = match &input.data {
+        Data::Enum(data) => &data.variants,
+        _ => panic!("VarIntEnum can only be derived for enums"),
+    };
+    let has_unknown = variants.iter().any(|v| v.ident == "Unknown");
+
+    let decode_err_msg = format!("{}", name);
+
+    TokenStream::from(if has_unknown {
+        quote! {
+            impl Codec for #name {
+                fn encode(&self, buf: &mut Vec<u8>) -> Result<(), TypeCodecError> {
+                    let id: i32 = (*self).into();
+                    VarInt(id).encode(buf)
+                }
+
+                fn decode(buf: &mut &[u8]) -> Result<Self, TypeCodecError> {
+                    let id = VarInt::decode(buf)?.0;
+                    Ok(Self::try_from(id).unwrap_or_else(|_| Self::Unknown(id)))
+                }
+            }
+        }
+    } else {
+        quote! {
+            impl Codec for #name {
+                fn encode(&self, buf: &mut Vec<u8>) -> Result<(), TypeCodecError> {
+                    let id: i32 = (*self).into();
+                    VarInt(id).encode(buf)
+                }
+
+                fn decode(buf: &mut &[u8]) -> Result<Self, TypeCodecError> {
+                    let id = VarInt::decode(buf)?.0;
+                    Self::try_from(id).map_err(|_| TypeCodecError::UnknownEnumValue(id, #decode_err_msg.to_string()))
+                }
+            }
+        }
+    })
+}

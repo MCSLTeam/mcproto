@@ -1,7 +1,7 @@
 use crate::basic::{Double, Float, Identifier, Int, VarInt};
+use crate::compound::enums::{AttributeOperation, ConsumableAnimation, ConsumeEffectData, EquipmentSlot, PredicateType, TrimMaterialData, TrimMaterialMode};
 use crate::compound::structured_component::{Component, ComponentType};
-use crate::compound::enums::{AttributeOperation, ConsumableAnimation, ConsumeEffectData, EquipmentSlot, PredicateType};
-use crate::compound::Nbt;
+use crate::compound::{Nbt, TextComponent};
 use crate::contextual::{IdOr, IdSet, Optional, PrefixedArray, PrefixedOptional, SoundEvent};
 use crate::{Codec, ContextualCodec, Ctx, TypeCodecError};
 use mcproto_derive::Codec;
@@ -159,4 +159,100 @@ pub struct Tool {
 pub struct Weapon {
     pub damage_per_attack: VarInt,
     pub disabling_block_for: Float,
+}
+
+#[derive(Debug, Clone, PartialEq, Codec)]
+pub struct Equippable {
+    pub slot: EquipmentSlot,
+    pub equip_sound: IdOr<SoundEvent>,
+    pub model: PrefixedOptional<Identifier>,
+    pub camera_overlay: PrefixedOptional<Identifier>,
+    pub allowed_entities: PrefixedOptional<IdSet>,
+    pub dispensable: bool,
+    pub swappable: bool,
+    pub damage_on_hurt: bool,
+    pub can_be_sheared: bool,
+    pub shearing_sound: IdOr<SoundEvent>
+}
+#[derive(Debug, Clone, PartialEq, Codec)]
+pub struct DamageReduction {
+    pub horizontal_blocking_angle: Float,
+    pub r#type: PrefixedOptional<IdSet>,
+    pub base: Float,
+    pub factor: Float
+}
+#[derive(Debug, Clone, PartialEq, Codec)]
+pub struct BlocksAttacks {
+    pub block_delay_seconds: Float,
+    pub disable_cooldown_scale: Float,
+    pub damage_reductions: DamageReduction,
+    pub item_damage_threshold: Float,
+    pub item_damage_base: Float,
+    pub item_damage_factor: Float,
+    pub bypassed_by: PrefixedOptional<Identifier>,
+    pub block_sound: PrefixedOptional<IdOr<SoundEvent>>,
+    pub disable_sound: PrefixedOptional<IdOr<SoundEvent>>
+
+}
+#[derive(Debug, Clone, PartialEq, Codec)]
+// 第一个实际上应该为VarInt枚举，由于mc更新太频繁，用VarInt（自行注意类型安全）
+pub struct Enchantment {
+    pub type_id: VarInt,
+    pub level: VarInt
+}
+#[derive(Debug, Clone, PartialEq, Codec)]
+pub struct PotionContents {
+    pub potion_id: PrefixedOptional<VarInt>,
+    pub custom_color: PrefixedOptional<Int>,
+    pub custom_effects: PrefixedArray<PotionEffect>,
+    pub custom_name: String
+}
+#[derive(Debug, Clone, PartialEq, Codec)]
+// 第一个实际上应该为VarInt枚举，由于mc更新太频繁，用VarInt（自行注意类型安全）
+pub struct Effect {
+    pub type_id: VarInt,
+    pub level: VarInt
+}
+#[derive(Debug, Clone, PartialEq, Codec)]
+pub struct Page {
+    pub raw_content: String,
+    pub filtered_content: PrefixedOptional<String>
+}
+#[derive(Debug, Clone, PartialEq, Codec)]
+pub struct WrittenBookContent {
+    pub raw_title: String,
+    pub filtered_title: PrefixedOptional<String>,
+    pub author: String,
+    pub generation: VarInt,
+    pub pages: PrefixedArray<Page>,
+    pub resolved: bool
+}
+#[derive(Debug, Clone, PartialEq, Codec)]
+pub struct EntityData {
+    pub entity_type: VarInt,
+    pub data: Nbt
+}
+#[derive(Debug, Clone, PartialEq, Codec)]
+pub struct Instrument {
+    pub sound_event: SoundEvent,
+    pub use_duration: Float,
+    pub range: Float,
+    pub description: TextComponent
+}
+#[derive(Debug, Clone, PartialEq, Codec)]
+pub struct TrimMaterialOverride {
+    pub armor_material_type: Identifier,
+    pub overridden_asset_name: String, // wiki没双写
+
+}
+#[derive(Debug, Clone, PartialEq, Codec)]
+pub struct TrimMaterial {
+    pub suffix: String,
+    pub overrides: PrefixedArray<TrimMaterialOverride>,
+    pub description: TextComponent
+}
+#[derive(Debug, Clone, PartialEq, Codec)]
+pub struct ProvidesTrimMaterial {
+    pub mode: TrimMaterialMode,
+    pub material: TrimMaterialData,
 }
