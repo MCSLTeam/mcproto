@@ -1,0 +1,18 @@
+[package]
+name = "mcproto-derive"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Macros for mcproto"
+readme = "README.md"
+keywords = ["macro", "derive", "auto", "minecraft", "safe"]
+categories = ["network-programming", "game-development"]
+
+[lib]
+proc-macro = true
+
+[dependencies]
+quote = "1.0.45"
+syn = "2.0.117"

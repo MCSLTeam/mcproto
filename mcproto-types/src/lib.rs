@@ -40,6 +40,15 @@ pub enum TypeCodecError {
     #[error("Unknown enum value {0} in {1}")]
     UnknownEnumValue(i32, String),
 }
+impl<T: Codec> Codec for Box<T> {
+    fn encode(&self, buf: &mut Vec<u8>) -> Result<(), TypeCodecError> {
+        (**self).encode(buf)
+    }
+
+    fn decode(buf: &mut &[u8]) -> Result<Self, TypeCodecError> {
+        Ok(Box::new(T::decode(buf)?))
+    }
+}
 pub trait Codec {
     fn encode(&self, buf: &mut Vec<u8>) -> Result<(), TypeCodecError>;
     fn decode(buf: &mut &[u8]) -> Result<Self, TypeCodecError>

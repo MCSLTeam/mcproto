@@ -2,5 +2,5 @@
 pub use mcproto_codec as codec; // 重导出
 #[cfg(feature = "types")]
 pub use mcproto_types as types;
-#[cfg(feature = "nbt")]
-pub use mcproto_nbt as nbt;
+#[cfg(feature = "derive")]
+pub use mcproto_derive as derive;

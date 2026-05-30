@@ -6,7 +6,7 @@ use crate::TypeCodecError;
 use num_enum::{FromPrimitive, IntoPrimitive};
 use thiserror::__private18::Var;
 use crate::compound::enums::ConsumeEffectData;
-use crate::compound::subtypes::{AttributeModifier, BlockPredicate, Consumable, CustomModelData, Food, TooltipDisplay};
+use crate::compound::subtypes::{AttributeModifier, BlockPredicate, Consumable, Cooldown, CustomModelData, Food, TooltipDisplay};
 use crate::TypeCodecError::UnknownComponentType;
 
 impl Codec for (VarInt, VarInt) {
@@ -163,6 +163,9 @@ pub enum Component {
     Food(Food),
     Consumable(Consumable),
     UseRemainder(Slot),
+    UseCooldown(Cooldown),
+    DamageResistant(Identifier),
+    
 }
 fn encode_component<T: Codec>(ty: ComponentType, value: &T, buf: &mut Vec<u8>) -> Result<(), TypeCodecError> {
     ty.encode(buf)?;
@@ -194,6 +197,8 @@ impl Codec for Component {
             Self::Food(v) => encode_component(ComponentType::Food, v, buf),
             Self::Consumable(v) => encode_component(ComponentType::Consumable, v, buf),
             Self::UseRemainder(v) => encode_component(ComponentType::UseRemainder, v, buf),
+            Self::UseCooldown(v) => encode_component(ComponentType::UseCooldown, v, buf),
+            Self::DamageResistant(v) => {encode_component(ComponentType::DamageResistant, v, buf)},
             _ => Err(UnknownComponentType(127)),
         }
     }
@@ -225,6 +230,8 @@ impl Codec for Component {
             ComponentType::Food => Ok(Self::Food(Food::decode(buf)?)),
             ComponentType::Consumable => Ok(Self::Consumable(Consumable::decode(buf)?)),
             ComponentType::UseRemainder => Ok(Self::UseRemainder(Slot::decode(buf)?)),
+            ComponentType::UseCooldown => Ok(Self::UseCooldown(Cooldown::decode(buf)?)),
+            ComponentType::DamageResistant => Ok(Self::DamageResistant(Identifier::decode(buf)?)),
 
         }
     }
