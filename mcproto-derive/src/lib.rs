@@ -43,3 +43,54 @@ pub fn codec_derive(input: TokenStream) -> TokenStream {
         }
     })
 }
+
+#[proc_macro_derive(ComponentCodec)]
+pub fn component_codec_derive(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let name = &input.ident;
+
+    let variants = match &input.data {
+        Data::Enum(data) => &data.variants,
+        _ => panic!("only enums"),
+    };
+
+    let mut encode = vec![];
+    let mut decode = vec![];
+
+    for v in variants {
+        let variant = &v.ident;
+        let ty = &v.fields;
+
+        match ty {
+            Fields::Unit => {
+                encode.push(quote! { Self::#variant => ComponentType::#variant.encode(buf)?, });
+                decode.push(quote! { ComponentType::#variant => Ok(Self::#variant), });
+            }
+            Fields::Unnamed(f) if f.unnamed.len() == 1 => {
+                let t = &f.unnamed[0].ty;
+                encode.push(quote! { Self::#variant(v) => {
+                    ComponentType::#variant.encode(buf)?;
+                    v.encode(buf)?;
+                } });
+                decode.push(quote! { ComponentType::#variant => Ok(Self::#variant(<#t as Codec>::decode(buf)?)), });
+            }
+            _ => panic!("only unit or single-field"),
+        }
+    }
+
+    decode.push(quote! { _ => Err(TypeCodecError::UnknownComponentType(0)), });
+
+    TokenStream::from(quote! {
+        impl Codec for #name {
+            fn encode(&self, buf: &mut Vec<u8>) -> Result<(), TypeCodecError> {
+                match self { #(#encode)* }
+                Ok(())
+            }
+            fn decode(buf: &mut &[u8]) -> Result<Self, TypeCodecError> {
+                match ComponentType::decode(buf)? {
+                    #(#decode)*
+                }
+            }
+        }
+    })
+}

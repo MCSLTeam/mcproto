@@ -49,6 +49,7 @@ impl<T: Codec> Codec for Box<T> {
         Ok(Box::new(T::decode(buf)?))
     }
 }
+#[must_use]
 pub trait Codec {
     fn encode(&self, buf: &mut Vec<u8>) -> Result<(), TypeCodecError>;
     fn decode(buf: &mut &[u8]) -> Result<Self, TypeCodecError>

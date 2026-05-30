@@ -5,9 +5,9 @@ use crate::Codec;
 use crate::TypeCodecError;
 use num_enum::{FromPrimitive, IntoPrimitive};
 use thiserror::__private18::Var;
+use mcproto_derive::ComponentCodec;
 use crate::compound::enums::ConsumeEffectData;
-use crate::compound::subtypes::{AttributeModifier, BlockPredicate, Consumable, Cooldown, CustomModelData, Food, TooltipDisplay};
-use crate::TypeCodecError::UnknownComponentType;
+use crate::compound::subtypes::{AttributeModifier, BlockPredicate, Consumable, Cooldown, CustomModelData, Food, Tool, TooltipDisplay, Weapon};
 
 impl Codec for (VarInt, VarInt) {
     fn encode(&self, buf: &mut Vec<u8>) -> Result<(), TypeCodecError> {
@@ -137,7 +137,7 @@ impl Codec for ComponentType {
 }
 
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, ComponentCodec)]
 pub enum Component {
     CustomData(Nbt),
     MaxStackSize(VarInt),
@@ -165,74 +165,8 @@ pub enum Component {
     UseRemainder(Slot),
     UseCooldown(Cooldown),
     DamageResistant(Identifier),
-    
-}
-fn encode_component<T: Codec>(ty: ComponentType, value: &T, buf: &mut Vec<u8>) -> Result<(), TypeCodecError> {
-    ty.encode(buf)?;
-    value.encode(buf)
-}
-impl Codec for Component {
-    fn encode(&self, buf: &mut Vec<u8>) -> Result<(), TypeCodecError> {
-        match self {
-            Self::CustomData(v) => encode_component(ComponentType::CustomData, v, buf),
-            Self::MaxStackSize(v) => encode_component(ComponentType::MaxStackSize, v, buf),
-            Self::MaxDamage(v) => encode_component(ComponentType::MaxDamage, v, buf),
-            Self::Damage(v) => encode_component(ComponentType::Damage, v, buf),
-            Self::Unbreakable => ComponentType::Unbreakable.encode(buf),
-            Self::CustomName(v) => encode_component(ComponentType::CustomName, v, buf),
-            Self::ItemName(v) => encode_component(ComponentType::ItemName, v, buf),
-            Self::ItemModel(v) => encode_component(ComponentType::ItemModel, v, buf),
-            Self::Lore(v) => encode_component(ComponentType::Lore, v, buf),
-            Self::Rarity(v) => encode_component(ComponentType::Rarity, v, buf),
-            Self::Enchantments(v) => encode_component(ComponentType::Enchantments, v, buf),
-            Self::CanPlaceOn(v) => encode_component(ComponentType::CanPlaceOn, v, buf),
-            Self::CanBreak(v) => encode_component(ComponentType::CanBreak, v, buf),
-            Self::AttributeModifiers(v) => encode_component(ComponentType::AttributeModifiers, v, buf),
-            Self::CustomModelData(v) => encode_component(ComponentType::CustomModelData, v, buf),
-            Self::TooltipDisplay(v) => encode_component(ComponentType::TooltipDisplay, v, buf),
-            Self::RepairCost(v) => encode_component(ComponentType::RepairCost, v, buf),
-            Self::CreativeSlotLock => ComponentType::CreativeSlotLock.encode(buf),
-            Self::EnchantmentGlintOverride(v) => encode_component(ComponentType::EnchantmentGlintOverride, v, buf),
-            Self::IntangibleProjectile(v) => encode_component(ComponentType::IntangibleProjectile, v, buf),
-            Self::Food(v) => encode_component(ComponentType::Food, v, buf),
-            Self::Consumable(v) => encode_component(ComponentType::Consumable, v, buf),
-            Self::UseRemainder(v) => encode_component(ComponentType::UseRemainder, v, buf),
-            Self::UseCooldown(v) => encode_component(ComponentType::UseCooldown, v, buf),
-            Self::DamageResistant(v) => {encode_component(ComponentType::DamageResistant, v, buf)},
-            _ => Err(UnknownComponentType(127)),
-        }
-    }
+    Tool(Tool),
+    Weapon(Weapon),
+    Enchantable(VarInt),
 
-    fn decode(buf: &mut &[u8]) -> Result<Self, TypeCodecError> {
-        let comp_type = ComponentType::decode(buf)?;
-        match comp_type {
-            ComponentType::Unknown(id) => Err(UnknownComponentType(id as u8)),
-            ComponentType::CustomData => Ok(Self::CustomData(Nbt::decode(buf)?)),
-            ComponentType::MaxStackSize => Ok(Self::MaxStackSize(VarInt::decode(buf)?)),
-            ComponentType::MaxDamage => Ok(Self::MaxDamage(VarInt::decode(buf)?)),
-            ComponentType::Damage => Ok(Self::Damage(VarInt::decode(buf)?)),
-            ComponentType::Unbreakable => Ok(Self::Unbreakable),
-            ComponentType::CustomName => Ok(Self::CustomName(TextComponent::decode(buf)?)),
-            ComponentType::ItemName => Ok(Self::ItemName(TextComponent::decode(buf)?)),
-            ComponentType::ItemModel => Ok(Self::ItemModel(Identifier::decode(buf)?)),
-            ComponentType::Lore => Ok(Self::Lore(PrefixedArray::decode(buf)?)),
-            ComponentType::Rarity => Ok(Self::Rarity(VarInt::decode(buf)?)),
-            ComponentType::Enchantments => Ok(Self::Enchantments(PrefixedArray::decode(buf)?)),
-            ComponentType::CanPlaceOn => Ok(Self::CanPlaceOn(PrefixedArray::decode(buf)?)),
-            ComponentType::CanBreak => Ok(Self::CanBreak(PrefixedArray::decode(buf)?)),
-            ComponentType::AttributeModifiers => Ok(Self::AttributeModifiers(AttributeModifier::decode(buf)?)),
-            ComponentType::CustomModelData => Ok(Self::CustomModelData(CustomModelData::decode(buf)?)),
-            ComponentType::TooltipDisplay => Ok(Self::TooltipDisplay(TooltipDisplay::decode(buf)?)),
-            ComponentType::RepairCost => Ok(Self::RepairCost(VarInt::decode(buf)?)),
-            ComponentType::CreativeSlotLock => Ok(Self::CreativeSlotLock),
-            ComponentType::EnchantmentGlintOverride => Ok(Self::EnchantmentGlintOverride(bool::decode(buf)?)),
-            ComponentType::IntangibleProjectile => Ok(Self::IntangibleProjectile(Nbt::decode(buf)?)),
-            ComponentType::Food => Ok(Self::Food(Food::decode(buf)?)),
-            ComponentType::Consumable => Ok(Self::Consumable(Consumable::decode(buf)?)),
-            ComponentType::UseRemainder => Ok(Self::UseRemainder(Slot::decode(buf)?)),
-            ComponentType::UseCooldown => Ok(Self::UseCooldown(Cooldown::decode(buf)?)),
-            ComponentType::DamageResistant => Ok(Self::DamageResistant(Identifier::decode(buf)?)),
-
-        }
-    }
 }

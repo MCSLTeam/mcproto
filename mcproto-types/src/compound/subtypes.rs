@@ -139,3 +139,24 @@ pub struct Cooldown {
     pub seconds: Float,
     pub cooldown_group: PrefixedOptional<Identifier>
 }
+
+#[derive(Debug, Clone, PartialEq, Codec)]
+pub struct ToolRule {
+    pub blocks: IdSet,
+    pub speed: PrefixedOptional<Float>,
+    pub correct_drop_for_blocks: PrefixedOptional<bool>
+}
+
+#[derive(Debug, Clone, PartialEq, Codec)]
+pub struct Tool {
+    pub rule: PrefixedArray<ToolRule>,
+    pub default_mining_speed: Float,
+    pub damage_per_block: VarInt,
+    pub can_destroy_blocks_in_creative: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Codec)]
+pub struct Weapon {
+    pub damage_per_attack: VarInt,
+    pub disabling_block_for: Float,
+}
