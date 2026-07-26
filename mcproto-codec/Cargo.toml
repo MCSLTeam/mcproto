@@ -9,3 +9,14 @@ description = "Minecraft protocol codecs."
 readme = "README.md"
 keywords = ["Minecraft", "protocol", "codec"]
 categories = ["encoding", "network-programming", "game-development"]
+
+[dev-dependencies]
+criterion = "0.8.2"
+
+[[bench]]
+name = "varint_bench"
+harness = false
+
+[[bench]]
+name = "varlong_bench"
+harness = false
