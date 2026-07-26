@@ -129,7 +129,7 @@ impl CodecError {
             source: Some(Box::new(source)),
         }
     }
-
+    /// Tips：encoding是编码格式，不是encode过程
     pub(crate) const fn invalid_encoding(
         codec: CodecKind,
         bytes_processed: usize,
