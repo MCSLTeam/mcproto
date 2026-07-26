@@ -1,0 +1,11 @@
+[package]
+name = "mcproto"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Minecraft protocol implementation in Rust."
+readme = "README.md"
+keywords = ["Minecraft", "Serde", "MC", "Protocol", "Quick"]
+categories = ["network-programming", "asynchronous", "game-development", "encoding"]
