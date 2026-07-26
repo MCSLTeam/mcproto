@@ -1,0 +1,11 @@
+[package]
+name = "mcproto-codec"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Minecraft protocol codecs."
+readme = "README.md"
+keywords = ["Minecraft", "protocol", "codec"]
+categories = ["encoding", "network-programming", "game-development"]
