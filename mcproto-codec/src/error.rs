@@ -16,6 +16,7 @@ pub enum CodecKind {
     Long,
     String,
     Identifier,
+    TextComponent,
 }
 
 impl fmt::Display for CodecKind {
@@ -32,6 +33,7 @@ impl fmt::Display for CodecKind {
             Self::Long => formatter.write_str("Long"),
             Self::String => formatter.write_str("String"),
             Self::Identifier => formatter.write_str("Identifier"),
+            Self::TextComponent => formatter.write_str("TextComponent"),
         }
     }
 }
@@ -78,6 +80,10 @@ pub enum InvalidEncodingReason {
         valid_up_to: usize,
         error_len: Option<usize>,
     },
+    InvalidNbt,
+    InvalidTextComponentRootTag {
+        tag: u8,
+    },
 }
 
 impl fmt::Display for InvalidEncodingReason {
@@ -119,6 +125,11 @@ impl fmt::Display for InvalidEncodingReason {
             } => write!(
                 formatter,
                 "incomplete UTF-8 sequence starting at byte {valid_up_to}"
+            ),
+            Self::InvalidNbt => formatter.write_str("invalid NBT data"),
+            Self::InvalidTextComponentRootTag { tag } => write!(
+                formatter,
+                "text component root tag must be TAG_String (8) or TAG_Compound (10), got {tag}"
             ),
         }
     }
@@ -227,6 +238,23 @@ impl CodecError {
             operation,
             bytes_processed,
             source: None,
+        }
+    }
+
+    pub fn invalid_encoding_for_operation_with_source(
+        codec: CodecKind,
+        operation: CodecOperation,
+        bytes_processed: usize,
+        reason: InvalidEncodingReason,
+        source: impl Error + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            kind: CodecErrorKind::InvalidEncoding(reason),
+            codec,
+            contexts: Vec::new(),
+            operation,
+            bytes_processed,
+            source: Some(Box::new(source)),
         }
     }
 }

@@ -11,4 +11,5 @@ keywords = ["Minecraft", "protocol", "types"]
 categories = ["network-programming", "game-development"]
 
 [dependencies]
+fastnbt.workspace = true
 mcproto-codec.workspace = true

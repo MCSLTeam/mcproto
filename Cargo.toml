@@ -10,4 +10,5 @@ license = "GPL-3.0-only"
 repository = "https://github.com/MCSLTeam/mcproto"
 
 [workspace.dependencies]
+fastnbt = "2.6.2"
 mcproto-codec = { path = "mcproto-codec" }

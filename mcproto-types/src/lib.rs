@@ -1,4 +1,5 @@
 pub mod basic;
+pub mod text_component;
 
 pub trait TypeCodec {
     fn encode(
