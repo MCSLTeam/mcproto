@@ -17,6 +17,7 @@ pub enum CodecKind {
     String,
     Identifier,
     TextComponent,
+    JsonTextComponent,
 }
 
 impl fmt::Display for CodecKind {
@@ -34,6 +35,7 @@ impl fmt::Display for CodecKind {
             Self::String => formatter.write_str("String"),
             Self::Identifier => formatter.write_str("Identifier"),
             Self::TextComponent => formatter.write_str("TextComponent"),
+            Self::JsonTextComponent => formatter.write_str("JsonTextComponent"),
         }
     }
 }
@@ -81,6 +83,7 @@ pub enum InvalidEncodingReason {
         error_len: Option<usize>,
     },
     InvalidNbt,
+    InvalidJson,
     InvalidTextComponentRootTag {
         tag: u8,
     },
@@ -127,6 +130,7 @@ impl fmt::Display for InvalidEncodingReason {
                 "incomplete UTF-8 sequence starting at byte {valid_up_to}"
             ),
             Self::InvalidNbt => formatter.write_str("invalid NBT data"),
+            Self::InvalidJson => formatter.write_str("invalid JSON data"),
             Self::InvalidTextComponentRootTag { tag } => write!(
                 formatter,
                 "text component root tag must be TAG_String (8) or TAG_Compound (10), got {tag}"

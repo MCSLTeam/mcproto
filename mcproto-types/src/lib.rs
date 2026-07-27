@@ -1,4 +1,5 @@
 pub mod basic;
+pub mod json_text_component;
 pub mod text_component;
 
 pub trait TypeCodec {
