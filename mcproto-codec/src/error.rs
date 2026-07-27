@@ -134,6 +134,7 @@ pub enum CodecErrorKind {
 pub struct CodecError {
     pub kind: CodecErrorKind,
     codec: CodecKind,
+    context: Option<CodecKind>,
     operation: CodecOperation,
     bytes_processed: usize,
     source: Option<BoxedError>,
@@ -148,16 +149,27 @@ impl CodecError {
         self.codec
     }
 
+    pub const fn context(&self) -> Option<CodecKind> {
+        self.context
+    }
+
     pub const fn operation(&self) -> CodecOperation {
         self.operation
     }
 
+    /// Returns the number of bytes successfully processed before the error.
     pub const fn bytes_processed(&self) -> usize {
         self.bytes_processed
     }
 
     pub fn io_error(&self) -> Option<&io::Error> {
         self.source.as_deref()?.downcast_ref::<io::Error>()
+    }
+
+    /// Adds the outer codec that was active when this error occurred.
+    pub fn with_context(mut self, context: CodecKind) -> Self {
+        self.context = Some(context);
+        self
     }
 
     pub fn from_read_error(codec: CodecKind, bytes_processed: usize, source: io::Error) -> Self {
@@ -170,6 +182,7 @@ impl CodecError {
         Self {
             kind,
             codec,
+            context: None,
             operation: CodecOperation::Read,
             bytes_processed,
             source: Some(Box::new(source)),
@@ -180,6 +193,7 @@ impl CodecError {
         Self {
             kind: CodecErrorKind::Io,
             codec,
+            context: None,
             operation: CodecOperation::Write,
             bytes_processed,
             source: Some(Box::new(source)),
@@ -203,6 +217,7 @@ impl CodecError {
         Self {
             kind: CodecErrorKind::InvalidEncoding(reason),
             codec,
+            context: None,
             operation,
             bytes_processed,
             source: None,
@@ -228,6 +243,10 @@ impl fmt::Display for CodecError {
                 "invalid {} encoding after {} bytes: {reason}",
                 self.codec, self.bytes_processed
             )?,
+        }
+
+        if let Some(context) = self.context {
+            write!(formatter, " while processing {context}")?;
         }
 
         if let Some(source) = &self.source {

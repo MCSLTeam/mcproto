@@ -115,15 +115,17 @@ fn assert_error(
     error_kind: CodecErrorKind,
     codec_kind: CodecKind,
     operation: CodecOperation,
+    bytes_processed: usize,
 ) {
     assert_eq!(error.kind(), error_kind);
     assert_eq!(error.codec(), codec_kind);
     assert_eq!(error.operation(), operation);
+    assert_eq!(error.bytes_processed(), bytes_processed);
     assert!(error.io_error().is_some());
 }
 
 macro_rules! eof_case {
-    ($name:ident, $type:ident, $kind:ident, [$($byte:expr),* $(,)?]) => {
+    ($name:ident, $type:ident, $kind:ident, [$($byte:expr),* $(,)?], $processed:expr) => {
         #[test]
         fn $name() {
             let mut input = [$($byte),*].as_slice();
@@ -134,6 +136,7 @@ macro_rules! eof_case {
                 CodecErrorKind::UnexpectedEof,
                 CodecKind::$kind,
                 CodecOperation::Read,
+                $processed,
             );
             assert_eq!(
                 error.io_error().unwrap().kind(),
@@ -143,17 +146,18 @@ macro_rules! eof_case {
     };
 }
 
-eof_case!(boolean_eof, Boolean, Boolean, []);
-eof_case!(byte_eof, Byte, Byte, []);
-eof_case!(unsigned_byte_eof, UnsignedByte, UnsignedByte, []);
-eof_case!(short_eof, Short, Short, [0x00]);
-eof_case!(unsigned_short_eof, UnsignedShort, UnsignedShort, [0x00]);
-eof_case!(int_eof, Int, Int, [0x00, 0x00, 0x00]);
+eof_case!(boolean_eof, Boolean, Boolean, [], 0);
+eof_case!(byte_eof, Byte, Byte, [], 0);
+eof_case!(unsigned_byte_eof, UnsignedByte, UnsignedByte, [], 0);
+eof_case!(short_eof, Short, Short, [0x00], 1);
+eof_case!(unsigned_short_eof, UnsignedShort, UnsignedShort, [0x00], 1);
+eof_case!(int_eof, Int, Int, [0x00, 0x00, 0x00], 3);
 eof_case!(
     long_eof,
     Long,
     Long,
-    [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+    [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+    7
 );
 
 struct FailingReader;
@@ -175,6 +179,7 @@ macro_rules! read_error_case {
                 CodecErrorKind::Io,
                 CodecKind::$kind,
                 CodecOperation::Read,
+                0,
             );
             assert_eq!(error.io_error().unwrap().kind(), io::ErrorKind::Other);
         }
@@ -202,7 +207,7 @@ impl Write for FailingWriter {
 }
 
 macro_rules! write_error_case {
-    ($name:ident, $value:expr, $kind:ident, $size:expr) => {
+    ($name:ident, $value:expr, $kind:ident) => {
         #[test]
         fn $name() {
             let error = $value.encode(&mut FailingWriter).unwrap_err();
@@ -212,22 +217,84 @@ macro_rules! write_error_case {
                 CodecErrorKind::Io,
                 CodecKind::$kind,
                 CodecOperation::Write,
+                0,
             );
-            assert_eq!(error.bytes_processed(), $size);
             assert_eq!(error.io_error().unwrap().kind(), io::ErrorKind::Other);
         }
     };
 }
 
-write_error_case!(boolean_write_error, Boolean(false), Boolean, 1);
-write_error_case!(byte_write_error, Byte(0), Byte, 1);
-write_error_case!(unsigned_byte_write_error, UnsignedByte(0), UnsignedByte, 1);
-write_error_case!(short_write_error, Short(0), Short, 2);
-write_error_case!(
-    unsigned_short_write_error,
-    UnsignedShort(0),
-    UnsignedShort,
-    2
-);
-write_error_case!(int_write_error, Int(0), Int, 4);
-write_error_case!(long_write_error, Long(0), Long, 8);
+write_error_case!(boolean_write_error, Boolean(false), Boolean);
+write_error_case!(byte_write_error, Byte(0), Byte);
+write_error_case!(unsigned_byte_write_error, UnsignedByte(0), UnsignedByte);
+write_error_case!(short_write_error, Short(0), Short);
+write_error_case!(unsigned_short_write_error, UnsignedShort(0), UnsignedShort);
+write_error_case!(int_write_error, Int(0), Int);
+write_error_case!(long_write_error, Long(0), Long);
+
+struct PartialErrorReader {
+    bytes: &'static [u8],
+}
+
+impl Read for PartialErrorReader {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        if self.bytes.is_empty() {
+            return Err(io::Error::other("read failed after partial input"));
+        }
+
+        let read = buffer.len().min(self.bytes.len());
+        buffer[..read].copy_from_slice(&self.bytes[..read]);
+        self.bytes = &self.bytes[read..];
+        Ok(read)
+    }
+}
+
+#[test]
+fn partial_read_error_reports_exact_progress() {
+    let mut reader = PartialErrorReader {
+        bytes: &[0x12, 0x34],
+    };
+    let error = Int::decode(&mut reader).unwrap_err();
+
+    assert_error(
+        &error,
+        CodecErrorKind::Io,
+        CodecKind::Int,
+        CodecOperation::Read,
+        2,
+    );
+}
+
+struct PartialErrorWriter {
+    remaining: usize,
+}
+
+impl Write for PartialErrorWriter {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        if self.remaining == 0 {
+            return Err(io::Error::other("write failed after partial output"));
+        }
+
+        let written = buffer.len().min(self.remaining);
+        self.remaining -= written;
+        Ok(written)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn partial_write_error_reports_exact_progress() {
+    let mut writer = PartialErrorWriter { remaining: 3 };
+    let error = Long(0).encode(&mut writer).unwrap_err();
+
+    assert_error(
+        &error,
+        CodecErrorKind::Io,
+        CodecKind::Long,
+        CodecOperation::Write,
+        3,
+    );
+}

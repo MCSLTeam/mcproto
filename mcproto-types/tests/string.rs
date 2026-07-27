@@ -88,6 +88,7 @@ fn encode_rejects_too_many_utf16_code_units_before_writing() {
     );
     assert_eq!(error.codec(), CodecKind::String);
     assert_eq!(error.operation(), CodecOperation::Write);
+    assert_eq!(error.bytes_processed(), 0);
     assert!(output.is_empty());
 }
 
@@ -107,6 +108,7 @@ fn encode_rejects_too_many_utf8_bytes_before_writing() {
     );
     assert_eq!(error.codec(), CodecKind::String);
     assert_eq!(error.operation(), CodecOperation::Write);
+    assert_eq!(error.bytes_processed(), 0);
     assert!(output.is_empty());
 }
 
@@ -126,6 +128,7 @@ fn decode_rejects_declared_byte_length_above_limit_before_reading_payload() {
     );
     assert_eq!(error.codec(), CodecKind::String);
     assert_eq!(error.operation(), CodecOperation::Read);
+    assert_eq!(error.bytes_processed(), encoded.len());
 }
 
 #[test]
@@ -139,6 +142,7 @@ fn decode_rejects_negative_length() {
     );
     assert_eq!(error.codec(), CodecKind::String);
     assert_eq!(error.operation(), CodecOperation::Read);
+    assert_eq!(error.bytes_processed(), encoded.len());
 }
 
 #[test]
@@ -149,6 +153,7 @@ fn truncated_payload_is_unexpected_eof() {
     assert_eq!(error.kind(), CodecErrorKind::UnexpectedEof);
     assert_eq!(error.codec(), CodecKind::String);
     assert_eq!(error.operation(), CodecOperation::Read);
+    assert_eq!(error.bytes_processed(), encoded.len());
     assert_eq!(
         error.io_error().unwrap().kind(),
         io::ErrorKind::UnexpectedEof
@@ -169,7 +174,7 @@ fn invalid_utf8_is_rejected() {
     );
     assert_eq!(error.codec(), CodecKind::String);
     assert_eq!(error.operation(), CodecOperation::Read);
-    assert_eq!(error.bytes_processed(), 2);
+    assert_eq!(error.bytes_processed(), encoded.len());
 }
 
 #[test]
@@ -188,7 +193,7 @@ fn decode_rejects_too_many_utf16_code_units() {
     );
     assert_eq!(error.codec(), CodecKind::String);
     assert_eq!(error.operation(), CodecOperation::Read);
-    assert_eq!(error.bytes_processed(), payload.len());
+    assert_eq!(error.bytes_processed(), encoded.len());
 }
 
 struct PayloadFailingWriter {
@@ -220,5 +225,98 @@ fn payload_write_error_is_attributed_to_string() {
     assert_eq!(error.kind(), CodecErrorKind::Io);
     assert_eq!(error.codec(), CodecKind::String);
     assert_eq!(error.operation(), CodecOperation::Write);
+    assert_eq!(error.bytes_processed(), 1);
     assert_eq!(error.io_error().unwrap().kind(), io::ErrorKind::Other);
+}
+
+struct FailAfterWriter {
+    remaining: usize,
+}
+
+impl Write for FailAfterWriter {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        if self.remaining == 0 {
+            return Err(io::Error::other("injected write failure"));
+        }
+
+        let written = buffer.len().min(self.remaining);
+        self.remaining -= written;
+        Ok(written)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn partial_prefix_write_preserves_varint_and_string_context() {
+    let value = PrefixedString("a".repeat(128));
+    let error = value
+        .encode(&mut FailAfterWriter { remaining: 1 })
+        .unwrap_err();
+
+    assert_eq!(error.kind(), CodecErrorKind::Io);
+    assert_eq!(error.codec(), CodecKind::VarInt);
+    assert_eq!(error.context(), Some(CodecKind::String));
+    assert_eq!(error.operation(), CodecOperation::Write);
+    assert_eq!(error.bytes_processed(), 1);
+    assert!(error.to_string().contains("while processing String"));
+}
+
+#[test]
+fn partial_payload_write_includes_prefix_and_payload_progress() {
+    let value = PrefixedString("hello".to_owned());
+    let error = value
+        .encode(&mut FailAfterWriter { remaining: 3 })
+        .unwrap_err();
+
+    assert_eq!(error.kind(), CodecErrorKind::Io);
+    assert_eq!(error.codec(), CodecKind::String);
+    assert_eq!(error.context(), None);
+    assert_eq!(error.operation(), CodecOperation::Write);
+    assert_eq!(error.bytes_processed(), 3);
+}
+
+#[test]
+fn truncated_prefix_preserves_varint_and_string_context() {
+    let encoded = [0x80];
+    let error = PrefixedString::decode(&mut encoded.as_slice()).unwrap_err();
+
+    assert_eq!(error.kind(), CodecErrorKind::UnexpectedEof);
+    assert_eq!(error.codec(), CodecKind::VarInt);
+    assert_eq!(error.context(), Some(CodecKind::String));
+    assert_eq!(error.operation(), CodecOperation::Read);
+    assert_eq!(error.bytes_processed(), 1);
+}
+
+struct PartialErrorReader {
+    input: &'static [u8],
+}
+
+impl io::Read for PartialErrorReader {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        if self.input.is_empty() {
+            return Err(io::Error::other("injected payload read failure"));
+        }
+
+        let read = buffer.len().min(self.input.len());
+        buffer[..read].copy_from_slice(&self.input[..read]);
+        self.input = &self.input[read..];
+        Ok(read)
+    }
+}
+
+#[test]
+fn partial_payload_read_includes_prefix_and_payload_progress() {
+    let mut reader = PartialErrorReader {
+        input: &[0x05, b'H', b'e'],
+    };
+    let error = PrefixedString::decode(&mut reader).unwrap_err();
+
+    assert_eq!(error.kind(), CodecErrorKind::Io);
+    assert_eq!(error.codec(), CodecKind::String);
+    assert_eq!(error.context(), None);
+    assert_eq!(error.operation(), CodecOperation::Read);
+    assert_eq!(error.bytes_processed(), 3);
 }

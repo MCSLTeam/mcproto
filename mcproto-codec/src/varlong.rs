@@ -1,29 +1,27 @@
 use std::io::{Read, Write};
 
 use crate::error::{CodecError, CodecKind, InvalidEncodingReason};
+use crate::io::{read_exact_counted, write_all_counted};
 
 pub trait VarLongWrite: Write {
     #[inline]
     fn write_varlong(&mut self, value: i64) -> Result<(), CodecError> {
         let mut value = value as u64;
-        for i in 0..10 {
+        let mut bytes_processed = 0;
+
+        loop {
             let byte = (value & 0x7F) as u8;
             value >>= 7;
             let has_next = value != 0;
             let byte = if has_next { byte | 0x80 } else { byte };
 
-            self.write_all(&[byte])
-                .map_err(|e| CodecError::from_write_error(CodecKind::VarLong, i + 1, e))?;
+            write_all_counted(self, &[byte], CodecKind::VarLong, bytes_processed)?;
+            bytes_processed += 1;
 
             if !has_next {
                 return Ok(());
             }
         }
-        Err(CodecError::invalid_encoding(
-            CodecKind::VarLong,
-            10,
-            InvalidEncodingReason::TooLong { max_bytes: 10 },
-        ))
     }
 }
 
@@ -35,9 +33,28 @@ pub trait VarLongRead: Read {
 
         for i in 0..10 {
             let mut buf = [0u8; 1];
-            self.read_exact(&mut buf)
-                .map_err(|e| CodecError::from_read_error(CodecKind::VarLong, i, e))?;
+            read_exact_counted(self, &mut buf, CodecKind::VarLong, i)?;
             let byte = buf[0];
+
+            if i == 9 {
+                if (byte & 0x80) != 0 {
+                    return Err(CodecError::invalid_encoding(
+                        CodecKind::VarLong,
+                        i + 1,
+                        InvalidEncodingReason::TooLong { max_bytes: 10 },
+                    ));
+                }
+                if (byte & !0x01) != 0 {
+                    return Err(CodecError::invalid_encoding(
+                        CodecKind::VarLong,
+                        i + 1,
+                        InvalidEncodingReason::ValueOutOfRange {
+                            terminal_byte: byte,
+                            allowed_mask: 0x01,
+                        },
+                    ));
+                }
+            }
 
             let value = (byte & 0x7F) as u64;
             result |= value << shift;
@@ -48,11 +65,8 @@ pub trait VarLongRead: Read {
 
             shift += 7;
         }
-        Err(CodecError::invalid_encoding(
-            CodecKind::VarLong,
-            10,
-            InvalidEncodingReason::TooLong { max_bytes: 10 },
-        ))
+
+        unreachable!("the tenth VarLong byte always terminates or returns an error")
     }
 }
 

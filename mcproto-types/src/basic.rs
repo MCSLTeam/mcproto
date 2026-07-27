@@ -1,6 +1,7 @@
 use crate::TypeCodec;
 use mcproto_codec::{
     error::{CodecError, CodecKind, CodecOperation, InvalidEncodingReason},
+    io::{read_exact_counted, write_all_counted},
     varint::{VarIntRead, VarIntWrite},
 };
 use std::io::{Read, Write};
@@ -12,9 +13,7 @@ pub struct Boolean(pub bool);
 impl TypeCodec for Boolean {
     fn encode(&self, writer: &mut impl Write) -> Result<(), CodecError> {
         let byte = if self.0 { 1u8 } else { 0u8 };
-        writer
-            .write_all(&[byte])
-            .map_err(|error| CodecError::from_write_error(CodecKind::Boolean, 1, error))
+        write_all_counted(writer, &[byte], CodecKind::Boolean, 0)
     }
 
     fn decode(reader: &mut impl Read) -> Result<Self, CodecError>
@@ -22,9 +21,7 @@ impl TypeCodec for Boolean {
         Self: Sized,
     {
         let mut buf = [0u8; 1];
-        reader
-            .read_exact(&mut buf)
-            .map_err(|error| CodecError::from_read_error(CodecKind::Boolean, 0, error))?;
+        read_exact_counted(reader, &mut buf, CodecKind::Boolean, 0)?;
         match buf[0] {
             0 => Ok(Boolean(false)),
             1 => Ok(Boolean(true)),
@@ -43,16 +40,12 @@ pub struct Byte(pub i8);
 
 impl TypeCodec for Byte {
     fn encode(&self, writer: &mut impl Write) -> Result<(), CodecError> {
-        writer
-            .write_all(&self.0.to_be_bytes())
-            .map_err(|error| CodecError::from_write_error(CodecKind::Byte, 1, error))
+        write_all_counted(writer, &self.0.to_be_bytes(), CodecKind::Byte, 0)
     }
 
     fn decode(reader: &mut impl Read) -> Result<Self, CodecError> {
         let mut bytes = [0; 1];
-        reader
-            .read_exact(&mut bytes)
-            .map_err(|error| CodecError::from_read_error(CodecKind::Byte, 0, error))?;
+        read_exact_counted(reader, &mut bytes, CodecKind::Byte, 0)?;
         Ok(Self(i8::from_be_bytes(bytes)))
     }
 }
@@ -63,16 +56,12 @@ pub struct UnsignedByte(pub u8);
 
 impl TypeCodec for UnsignedByte {
     fn encode(&self, writer: &mut impl Write) -> Result<(), CodecError> {
-        writer
-            .write_all(&self.0.to_be_bytes())
-            .map_err(|error| CodecError::from_write_error(CodecKind::UnsignedByte, 1, error))
+        write_all_counted(writer, &self.0.to_be_bytes(), CodecKind::UnsignedByte, 0)
     }
 
     fn decode(reader: &mut impl Read) -> Result<Self, CodecError> {
         let mut bytes = [0; 1];
-        reader
-            .read_exact(&mut bytes)
-            .map_err(|error| CodecError::from_read_error(CodecKind::UnsignedByte, 0, error))?;
+        read_exact_counted(reader, &mut bytes, CodecKind::UnsignedByte, 0)?;
         Ok(Self(u8::from_be_bytes(bytes)))
     }
 }
@@ -83,16 +72,12 @@ pub struct Short(pub i16);
 
 impl TypeCodec for Short {
     fn encode(&self, writer: &mut impl Write) -> Result<(), CodecError> {
-        writer
-            .write_all(&self.0.to_be_bytes())
-            .map_err(|error| CodecError::from_write_error(CodecKind::Short, 2, error))
+        write_all_counted(writer, &self.0.to_be_bytes(), CodecKind::Short, 0)
     }
 
     fn decode(reader: &mut impl Read) -> Result<Self, CodecError> {
         let mut bytes = [0; 2];
-        reader
-            .read_exact(&mut bytes)
-            .map_err(|error| CodecError::from_read_error(CodecKind::Short, 0, error))?;
+        read_exact_counted(reader, &mut bytes, CodecKind::Short, 0)?;
         Ok(Self(i16::from_be_bytes(bytes)))
     }
 }
@@ -103,16 +88,12 @@ pub struct UnsignedShort(pub u16);
 
 impl TypeCodec for UnsignedShort {
     fn encode(&self, writer: &mut impl Write) -> Result<(), CodecError> {
-        writer
-            .write_all(&self.0.to_be_bytes())
-            .map_err(|error| CodecError::from_write_error(CodecKind::UnsignedShort, 2, error))
+        write_all_counted(writer, &self.0.to_be_bytes(), CodecKind::UnsignedShort, 0)
     }
 
     fn decode(reader: &mut impl Read) -> Result<Self, CodecError> {
         let mut bytes = [0; 2];
-        reader
-            .read_exact(&mut bytes)
-            .map_err(|error| CodecError::from_read_error(CodecKind::UnsignedShort, 0, error))?;
+        read_exact_counted(reader, &mut bytes, CodecKind::UnsignedShort, 0)?;
         Ok(Self(u16::from_be_bytes(bytes)))
     }
 }
@@ -123,16 +104,12 @@ pub struct Int(pub i32);
 
 impl TypeCodec for Int {
     fn encode(&self, writer: &mut impl Write) -> Result<(), CodecError> {
-        writer
-            .write_all(&self.0.to_be_bytes())
-            .map_err(|error| CodecError::from_write_error(CodecKind::Int, 4, error))
+        write_all_counted(writer, &self.0.to_be_bytes(), CodecKind::Int, 0)
     }
 
     fn decode(reader: &mut impl Read) -> Result<Self, CodecError> {
         let mut bytes = [0; 4];
-        reader
-            .read_exact(&mut bytes)
-            .map_err(|error| CodecError::from_read_error(CodecKind::Int, 0, error))?;
+        read_exact_counted(reader, &mut bytes, CodecKind::Int, 0)?;
         Ok(Self(i32::from_be_bytes(bytes)))
     }
 }
@@ -143,16 +120,12 @@ pub struct Long(pub i64);
 
 impl TypeCodec for Long {
     fn encode(&self, writer: &mut impl Write) -> Result<(), CodecError> {
-        writer
-            .write_all(&self.0.to_be_bytes())
-            .map_err(|error| CodecError::from_write_error(CodecKind::Long, 8, error))
+        write_all_counted(writer, &self.0.to_be_bytes(), CodecKind::Long, 0)
     }
 
     fn decode(reader: &mut impl Read) -> Result<Self, CodecError> {
         let mut bytes = [0; 8];
-        reader
-            .read_exact(&mut bytes)
-            .map_err(|error| CodecError::from_read_error(CodecKind::Long, 0, error))?;
+        read_exact_counted(reader, &mut bytes, CodecKind::Long, 0)?;
         Ok(Self(i64::from_be_bytes(bytes)))
     }
 }
@@ -198,32 +171,24 @@ impl PrefixedString {
 }
 
 impl TypeCodec for PrefixedString {
-fn encode(&self, writer: &mut impl Write) -> Result<(), CodecError> {
-    self.validate(CodecOperation::Write, 0)?;
+    fn encode(&self, writer: &mut impl Write) -> Result<(), CodecError> {
+        self.validate(CodecOperation::Write, 0)?;
 
-    let bytes = self.0.as_bytes();
-    let mut bytes_written = 0;
-    
-    let mut len_buf = Vec::with_capacity(5);
-    len_buf.write_varint(bytes.len() as i32)?;
-    writer
-        .write_all(&len_buf)
-        .map_err(|error| CodecError::from_write_error(CodecKind::String, bytes_written, error))?;
-    bytes_written += len_buf.len();
-    
-    writer
-        .write_all(bytes)
-        .map_err(|error| CodecError::from_write_error(CodecKind::String, bytes_written, error))?;
-    
-    Ok(())
-}
+        let bytes = self.0.as_bytes();
+        let prefix_size = writer
+            .write_varint_with_size(bytes.len() as i32)
+            .map_err(|error| error.with_context(CodecKind::String))?;
+        write_all_counted(writer, bytes, CodecKind::String, prefix_size)
+    }
 
     fn decode(reader: &mut impl Read) -> Result<Self, CodecError> {
-        let byte_length = reader.read_varint()?;
+        let (byte_length, prefix_size) = reader
+            .read_varint_with_size()
+            .map_err(|error| error.with_context(CodecKind::String))?;
         let byte_length = usize::try_from(byte_length).map_err(|_| {
             CodecError::invalid_encoding(
                 CodecKind::String,
-                0,
+                prefix_size,
                 InvalidEncodingReason::NegativeLength { value: byte_length },
             )
         })?;
@@ -231,7 +196,7 @@ fn encode(&self, writer: &mut impl Write) -> Result<(), CodecError> {
         if byte_length > Self::MAX_BYTES {
             return Err(CodecError::invalid_encoding(
                 CodecKind::String,
-                0,
+                prefix_size,
                 InvalidEncodingReason::StringTooLong {
                     max_bytes: Self::MAX_BYTES,
                 },
@@ -239,15 +204,13 @@ fn encode(&self, writer: &mut impl Write) -> Result<(), CodecError> {
         }
 
         let mut bytes = vec![0; byte_length];
-        reader
-            .read_exact(&mut bytes)
-            .map_err(|error| CodecError::from_read_error(CodecKind::String, 0, error))?;
+        read_exact_counted(reader, &mut bytes, CodecKind::String, prefix_size)?;
 
         let value = String::from_utf8(bytes).map_err(|error| {
             let utf8_error = error.utf8_error();
             CodecError::invalid_encoding(
                 CodecKind::String,
-                byte_length,
+                prefix_size + byte_length,
                 InvalidEncodingReason::InvalidUtf8 {
                     valid_up_to: utf8_error.valid_up_to(),
                     error_len: utf8_error.error_len(),
@@ -255,7 +218,7 @@ fn encode(&self, writer: &mut impl Write) -> Result<(), CodecError> {
             )
         })?;
         let value = Self(value);
-        value.validate(CodecOperation::Read, byte_length)?;
+        value.validate(CodecOperation::Read, prefix_size + byte_length)?;
         Ok(value)
     }
 }
