@@ -14,6 +14,7 @@ pub enum CodecKind {
     UnsignedShort,
     Int,
     Long,
+    String,
 }
 
 impl fmt::Display for CodecKind {
@@ -28,6 +29,7 @@ impl fmt::Display for CodecKind {
             Self::UnsignedShort => formatter.write_str("UnsignedShort"),
             Self::Int => formatter.write_str("Int"),
             Self::Long => formatter.write_str("Long"),
+            Self::String => formatter.write_str("String"),
         }
     }
 }
@@ -51,9 +53,29 @@ impl fmt::Display for CodecOperation {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum InvalidEncodingReason {
-    TooLong { max_bytes: usize },
-    ValueOutOfRange { terminal_byte: u8, allowed_mask: u8 },
-    InvalidBooleanValue { value: u8 },
+    TooLong {
+        max_bytes: usize,
+    },
+    ValueOutOfRange {
+        terminal_byte: u8,
+        allowed_mask: u8,
+    },
+    InvalidBooleanValue {
+        value: u8,
+    },
+    StringTooLong {
+        max_bytes: usize,
+    },
+    TooManyUtf16CodeUnits {
+        max_code_units: usize,
+    },
+    NegativeLength {
+        value: i32,
+    },
+    InvalidUtf8 {
+        valid_up_to: usize,
+        error_len: Option<usize>,
+    },
 }
 
 impl fmt::Display for InvalidEncodingReason {
@@ -72,6 +94,30 @@ impl fmt::Display for InvalidEncodingReason {
             Self::InvalidBooleanValue { value } => {
                 write!(formatter, "invalid boolean value 0x{value:02X}")
             }
+            Self::StringTooLong { max_bytes } => {
+                write!(formatter, "string exceeds the {max_bytes}-byte UTF-8 limit")
+            }
+            Self::TooManyUtf16CodeUnits { max_code_units } => write!(
+                formatter,
+                "string exceeds the {max_code_units}-code-unit UTF-16 limit"
+            ),
+            Self::NegativeLength { value } => {
+                write!(formatter, "length cannot be negative: {value}")
+            }
+            Self::InvalidUtf8 {
+                valid_up_to,
+                error_len: Some(error_len),
+            } => write!(
+                formatter,
+                "invalid UTF-8 sequence of {error_len} bytes at byte {valid_up_to}"
+            ),
+            Self::InvalidUtf8 {
+                valid_up_to,
+                error_len: None,
+            } => write!(
+                formatter,
+                "incomplete UTF-8 sequence starting at byte {valid_up_to}"
+            ),
         }
     }
 }
@@ -145,10 +191,19 @@ impl CodecError {
         bytes_processed: usize,
         reason: InvalidEncodingReason,
     ) -> Self {
+        Self::invalid_encoding_for_operation(codec, CodecOperation::Read, bytes_processed, reason)
+    }
+
+    pub const fn invalid_encoding_for_operation(
+        codec: CodecKind,
+        operation: CodecOperation,
+        bytes_processed: usize,
+        reason: InvalidEncodingReason,
+    ) -> Self {
         Self {
             kind: CodecErrorKind::InvalidEncoding(reason),
             codec,
-            operation: CodecOperation::Read,
+            operation,
             bytes_processed,
             source: None,
         }
