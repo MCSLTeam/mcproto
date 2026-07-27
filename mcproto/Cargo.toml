@@ -9,3 +9,6 @@ description = "Minecraft protocol implementation in Rust."
 readme = "README.md"
 keywords = ["Minecraft", "Serde", "MC", "Protocol", "Quick"]
 categories = ["network-programming", "asynchronous", "game-development", "encoding"]
+
+[dependencies]
+mcproto-codec.workspace = true

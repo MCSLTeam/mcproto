@@ -7,6 +7,13 @@ type BoxedError = Box<dyn Error + Send + Sync + 'static>;
 pub enum CodecKind {
     VarInt,
     VarLong,
+    Boolean,
+    Byte,
+    UnsignedByte,
+    Short,
+    UnsignedShort,
+    Int,
+    Long,
 }
 
 impl fmt::Display for CodecKind {
@@ -14,6 +21,13 @@ impl fmt::Display for CodecKind {
         match self {
             Self::VarInt => formatter.write_str("VarInt"),
             Self::VarLong => formatter.write_str("VarLong"),
+            Self::Boolean => formatter.write_str("Boolean"),
+            Self::Byte => formatter.write_str("Byte"),
+            Self::UnsignedByte => formatter.write_str("UnsignedByte"),
+            Self::Short => formatter.write_str("Short"),
+            Self::UnsignedShort => formatter.write_str("UnsignedShort"),
+            Self::Int => formatter.write_str("Int"),
+            Self::Long => formatter.write_str("Long"),
         }
     }
 }
@@ -39,6 +53,7 @@ impl fmt::Display for CodecOperation {
 pub enum InvalidEncodingReason {
     TooLong { max_bytes: usize },
     ValueOutOfRange { terminal_byte: u8, allowed_mask: u8 },
+    InvalidBooleanValue { value: u8 },
 }
 
 impl fmt::Display for InvalidEncodingReason {
@@ -54,6 +69,9 @@ impl fmt::Display for InvalidEncodingReason {
                 formatter,
                 "terminal byte 0x{terminal_byte:02X} contains bits outside mask 0x{allowed_mask:02X}"
             ),
+            Self::InvalidBooleanValue { value } => {
+                write!(formatter, "invalid boolean value 0x{value:02X}")
+            }
         }
     }
 }
@@ -68,7 +86,7 @@ pub enum CodecErrorKind {
 
 #[derive(Debug)]
 pub struct CodecError {
-    kind: CodecErrorKind,
+    pub kind: CodecErrorKind,
     codec: CodecKind,
     operation: CodecOperation,
     bytes_processed: usize,
@@ -96,11 +114,7 @@ impl CodecError {
         self.source.as_deref()?.downcast_ref::<io::Error>()
     }
 
-    pub(crate) fn from_read_error(
-        codec: CodecKind,
-        bytes_processed: usize,
-        source: io::Error,
-    ) -> Self {
+    pub fn from_read_error(codec: CodecKind, bytes_processed: usize, source: io::Error) -> Self {
         let kind = if source.kind() == io::ErrorKind::UnexpectedEof {
             CodecErrorKind::UnexpectedEof
         } else {
@@ -116,11 +130,7 @@ impl CodecError {
         }
     }
 
-    pub(crate) fn from_write_error(
-        codec: CodecKind,
-        bytes_processed: usize,
-        source: io::Error,
-    ) -> Self {
+    pub fn from_write_error(codec: CodecKind, bytes_processed: usize, source: io::Error) -> Self {
         Self {
             kind: CodecErrorKind::Io,
             codec,
@@ -130,7 +140,7 @@ impl CodecError {
         }
     }
     /// Tips：encoding是编码格式，不是encode过程
-    pub(crate) const fn invalid_encoding(
+    pub const fn invalid_encoding(
         codec: CodecKind,
         bytes_processed: usize,
         reason: InvalidEncodingReason,

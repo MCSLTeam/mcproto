@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["mcproto", "mcproto-codec"]
+members = ["mcproto", "mcproto-codec", "mcproto-types"]
 
 [workspace.package]
 version = "0.2.0"
@@ -8,3 +8,6 @@ edition = "2024"
 authors = ["MCSLTeam <services@mcsl.com.cn>"]
 license = "GPL-3.0-only"
 repository = "https://github.com/MCSLTeam/mcproto"
+
+[workspace.dependencies]
+mcproto-codec = { path = "mcproto-codec" }
