@@ -138,12 +138,12 @@ impl PrefixedString {
     pub const MAX_UTF16_CODE_UNITS: usize = 0x7fff;
     pub const MAX_BYTES: usize = Self::MAX_UTF16_CODE_UNITS * 3;
 
-    fn validate(
-        &self,
+    fn validate_value(
+        value: &str,
         operation: CodecOperation,
         bytes_processed: usize,
     ) -> Result<(), CodecError> {
-        let bytes = self.0.as_bytes();
+        let bytes = value.as_bytes();
         if bytes.len() > Self::MAX_BYTES {
             return Err(CodecError::invalid_encoding_for_operation(
                 CodecKind::String,
@@ -155,7 +155,7 @@ impl PrefixedString {
             ));
         }
 
-        if self.0.encode_utf16().count() > Self::MAX_UTF16_CODE_UNITS {
+        if value.encode_utf16().count() > Self::MAX_UTF16_CODE_UNITS {
             return Err(CodecError::invalid_encoding_for_operation(
                 CodecKind::String,
                 operation,
@@ -168,17 +168,21 @@ impl PrefixedString {
 
         Ok(())
     }
-}
 
-impl TypeCodec for PrefixedString {
-    fn encode(&self, writer: &mut impl Write) -> Result<(), CodecError> {
-        self.validate(CodecOperation::Write, 0)?;
+    fn encode_value(value: &str, writer: &mut impl Write) -> Result<(), CodecError> {
+        Self::validate_value(value, CodecOperation::Write, 0)?;
 
-        let bytes = self.0.as_bytes();
+        let bytes = value.as_bytes();
         let prefix_size = writer
             .write_varint_with_size(bytes.len() as i32)
             .map_err(|error| error.with_context(CodecKind::String))?;
         write_all_counted(writer, bytes, CodecKind::String, prefix_size)
+    }
+}
+
+impl TypeCodec for PrefixedString {
+    fn encode(&self, writer: &mut impl Write) -> Result<(), CodecError> {
+        Self::encode_value(&self.0, writer)
     }
 
     fn decode(reader: &mut impl Read) -> Result<Self, CodecError> {
@@ -217,8 +221,30 @@ impl TypeCodec for PrefixedString {
                 },
             )
         })?;
-        let value = Self(value);
-        value.validate(CodecOperation::Read, prefix_size + byte_length)?;
-        Ok(value)
+        Self::validate_value(&value, CodecOperation::Read, prefix_size + byte_length)?;
+        Ok(Self(value))
+    }
+}
+
+/// Encoded as a String with max length of 32 767. 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub struct Identifier(pub String);
+
+impl Identifier {
+    pub const MAX_UTF16_CODE_UNITS: usize = PrefixedString::MAX_UTF16_CODE_UNITS;
+    pub const MAX_BYTES: usize = PrefixedString::MAX_BYTES;
+    pub const MAX_ENCODED_BYTES: usize = Self::MAX_BYTES + 3;
+}
+
+impl TypeCodec for Identifier {
+    fn encode(&self, writer: &mut impl Write) -> Result<(), CodecError> {
+        PrefixedString::encode_value(&self.0, writer)
+            .map_err(|error| error.with_context(CodecKind::Identifier))
+    }
+
+    fn decode(reader: &mut impl Read) -> Result<Self, CodecError> {
+        PrefixedString::decode(reader)
+            .map(|value| Self(value.0))
+            .map_err(|error| error.with_context(CodecKind::Identifier))
     }
 }

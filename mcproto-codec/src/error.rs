@@ -15,6 +15,7 @@ pub enum CodecKind {
     Int,
     Long,
     String,
+    Identifier,
 }
 
 impl fmt::Display for CodecKind {
@@ -30,6 +31,7 @@ impl fmt::Display for CodecKind {
             Self::Int => formatter.write_str("Int"),
             Self::Long => formatter.write_str("Long"),
             Self::String => formatter.write_str("String"),
+            Self::Identifier => formatter.write_str("Identifier"),
         }
     }
 }
@@ -134,7 +136,7 @@ pub enum CodecErrorKind {
 pub struct CodecError {
     pub kind: CodecErrorKind,
     codec: CodecKind,
-    context: Option<CodecKind>,
+    contexts: Vec<CodecKind>,
     operation: CodecOperation,
     bytes_processed: usize,
     source: Option<BoxedError>,
@@ -149,8 +151,12 @@ impl CodecError {
         self.codec
     }
 
-    pub const fn context(&self) -> Option<CodecKind> {
-        self.context
+    pub fn context(&self) -> Option<CodecKind> {
+        self.contexts.last().copied()
+    }
+
+    pub fn contexts(&self) -> &[CodecKind] {
+        &self.contexts
     }
 
     pub const fn operation(&self) -> CodecOperation {
@@ -168,7 +174,7 @@ impl CodecError {
 
     /// Adds the outer codec that was active when this error occurred.
     pub fn with_context(mut self, context: CodecKind) -> Self {
-        self.context = Some(context);
+        self.contexts.push(context);
         self
     }
 
@@ -182,7 +188,7 @@ impl CodecError {
         Self {
             kind,
             codec,
-            context: None,
+            contexts: Vec::new(),
             operation: CodecOperation::Read,
             bytes_processed,
             source: Some(Box::new(source)),
@@ -193,7 +199,7 @@ impl CodecError {
         Self {
             kind: CodecErrorKind::Io,
             codec,
-            context: None,
+            contexts: Vec::new(),
             operation: CodecOperation::Write,
             bytes_processed,
             source: Some(Box::new(source)),
@@ -217,7 +223,7 @@ impl CodecError {
         Self {
             kind: CodecErrorKind::InvalidEncoding(reason),
             codec,
-            context: None,
+            contexts: Vec::new(),
             operation,
             bytes_processed,
             source: None,
@@ -245,7 +251,7 @@ impl fmt::Display for CodecError {
             )?,
         }
 
-        if let Some(context) = self.context {
+        for context in &self.contexts {
             write!(formatter, " while processing {context}")?;
         }
 
