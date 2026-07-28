@@ -8,7 +8,8 @@ use mcproto_types::{
         ClickEvent, CommandString, Component, ComponentObject, Content, DialogReference,
         HoverEvent, HttpUrl, JsonComponent, NbtComponent, NbtDisplay, NbtTarget, ObjectContent,
         PlayerModel, PlayerName, PlayerProfile, PositiveI32, Profile, ProfileProperty,
-        ProfilePropertyName, ResourceLocation, ShadowColor, TEXT_COMPONENT_FORMAT_VERSION, Uuid,
+        ProfilePropertyName, ResourceLocation, RgbColor, ShadowColor,
+        TEXT_COMPONENT_FORMAT_VERSION, TextColor, Uuid,
     },
     json_text_component::JsonTextComponent,
     text_component::{NbtValue, TextComponent},
@@ -259,6 +260,22 @@ fn uuid_and_shadow_color_representations_are_accepted() {
     let argb: ShadowColor = serde_json::from_value(json!(-1)).unwrap();
     assert_eq!(argb.argb(), -1);
     assert!(serde_json::from_value::<ShadowColor>(json!([1.1, 0.0, 0.0, 1.0])).is_err());
+}
+
+#[test]
+fn rgb_colors_are_bounded_and_roundtrip_without_truncation() {
+    let rgb = RgbColor::new(0x12_ab_ef).unwrap();
+    assert_eq!(rgb.value(), 0x12_ab_ef);
+    assert_eq!(rgb.channels(), [0x12, 0xab, 0xef]);
+    assert_eq!(RgbColor::from_channels(0x12, 0xab, 0xef), rgb);
+    assert!(RgbColor::new(RgbColor::MAX + 1).is_err());
+    assert!(TextColor::rgb(RgbColor::MAX + 1).is_err());
+
+    let color = TextColor::Rgb(rgb);
+    let encoded = serde_json::to_value(color).unwrap();
+    assert_eq!(encoded, json!("#12abef"));
+    assert_eq!(serde_json::from_value::<TextColor>(encoded).unwrap(), color);
+    assert!(serde_json::from_value::<TextColor>(json!("#1234567")).is_err());
 }
 
 #[test]

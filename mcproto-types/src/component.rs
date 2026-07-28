@@ -1119,8 +1119,61 @@ impl std::error::Error for InvalidUuid {}
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TextColor {
     Named(NamedColor),
-    Rgb(u32),
+    Rgb(RgbColor),
 }
+
+impl TextColor {
+    pub const fn rgb(value: u32) -> Result<Self, InvalidRgbColor> {
+        match RgbColor::new(value) {
+            Ok(value) => Ok(Self::Rgb(value)),
+            Err(error) => Err(error),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct RgbColor(u32);
+
+impl RgbColor {
+    pub const MAX: u32 = 0x00ff_ffff;
+
+    pub const fn new(value: u32) -> Result<Self, InvalidRgbColor> {
+        if value <= Self::MAX {
+            Ok(Self(value))
+        } else {
+            Err(InvalidRgbColor)
+        }
+    }
+
+    pub const fn from_channels(red: u8, green: u8, blue: u8) -> Self {
+        Self(((red as u32) << 16) | ((green as u32) << 8) | blue as u32)
+    }
+
+    pub const fn value(self) -> u32 {
+        self.0
+    }
+
+    pub const fn channels(self) -> [u8; 3] {
+        [(self.0 >> 16) as u8, (self.0 >> 8) as u8, self.0 as u8]
+    }
+}
+
+impl From<RgbColor> for TextColor {
+    fn from(value: RgbColor) -> Self {
+        Self::Rgb(value)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InvalidRgbColor;
+
+impl fmt::Display for InvalidRgbColor {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("RGB color must fit in 24 bits")
+    }
+}
+
+impl std::error::Error for InvalidRgbColor {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -1150,7 +1203,7 @@ impl Serialize for TextColor {
     {
         match self {
             Self::Named(color) => color.serialize(serializer),
-            Self::Rgb(rgb) => serializer.serialize_str(&format!("#{:06x}", rgb & 0x00ff_ffff)),
+            Self::Rgb(rgb) => serializer.serialize_str(&format!("#{:06x}", rgb.value())),
         }
     }
 }
@@ -1165,8 +1218,12 @@ impl<'de> Deserialize<'de> for TextColor {
             && rgb.len() == 6
         {
             return u32::from_str_radix(rgb, 16)
-                .map(Self::Rgb)
-                .map_err(D::Error::custom);
+                .map_err(D::Error::custom)
+                .and_then(|value| {
+                    RgbColor::new(value)
+                        .map(Self::Rgb)
+                        .map_err(D::Error::custom)
+                });
         }
         serde_json::from_value::<NamedColor>(serde_json::Value::String(value))
             .map(Self::Named)
