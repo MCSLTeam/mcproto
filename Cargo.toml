@@ -3,7 +3,7 @@ resolver = "3"
 members = ["mcproto", "mcproto-codec", "mcproto-types"]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 authors = ["MCSLTeam <services@mcsl.com.cn>"]
 license = "GPL-3.0-only"
@@ -11,8 +11,8 @@ repository = "https://github.com/MCSLTeam/mcproto"
 
 [workspace.dependencies]
 fastnbt = "2.6.2"
-mcproto-codec = { version = "0.2.0", path = "mcproto-codec" }
-mcproto-types = { version = "0.2.0", path = "mcproto-types" }
+mcproto-codec = { version = "0.2.1", path = "mcproto-codec" }
+mcproto-types = { version = "0.2.1", path = "mcproto-types" }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "1.0.151", features = ["unbounded_depth"] }
 serde_stacker = "0.1.14"
