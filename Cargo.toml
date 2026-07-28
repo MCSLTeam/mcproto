@@ -11,7 +11,7 @@ repository = "https://github.com/MCSLTeam/mcproto"
 
 [workspace.dependencies]
 fastnbt = "2.6.2"
-mcproto-codec = { path = "mcproto-codec" }
+mcproto-codec = { version = "0.2.0", path = "mcproto-codec" }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.151"
 url = "2.5.7"
