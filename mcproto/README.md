@@ -13,7 +13,7 @@ mcproto = { git = "https://github.com/MCSLTeam/mcproto" }
 
 ## License
 
-GPL-3
+Licensed under the [MIT License](LICENSE).
 
 ## Links
 

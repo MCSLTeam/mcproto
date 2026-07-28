@@ -6,7 +6,7 @@ members = ["mcproto", "mcproto-codec", "mcproto-types"]
 version = "0.2.1"
 edition = "2024"
 authors = ["MCSLTeam <services@mcsl.com.cn>"]
-license = "GPL-3.0-only"
+license = "MIT"
 repository = "https://github.com/MCSLTeam/mcproto"
 
 [workspace.dependencies]
