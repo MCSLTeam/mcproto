@@ -378,6 +378,7 @@ impl<R: Read + ?Sized> Read for CountedReader<'_, R> {
                 self.processed += read;
                 Ok(read)
             }
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => Err(error),
             Err(error) => {
                 let returned = clone_io_error(&error);
                 self.failure = Some(error);

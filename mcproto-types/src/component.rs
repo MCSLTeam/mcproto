@@ -1071,19 +1071,55 @@ impl<'de> Deserialize<'de> for Uuid {
     where
         D: Deserializer<'de>,
     {
-        #[derive(Deserialize)]
-        #[serde(untagged)]
-        enum Repr {
-            String(String),
-            IntArray(fastnbt::IntArray),
-            List([i32; 4]),
+        struct UuidVisitor;
+
+        impl<'de> Visitor<'de> for UuidVisitor {
+            type Value = Uuid;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("a UUID string, four-integer list, or NBT int array")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Uuid::parse(value).map_err(E::custom)
+            }
+
+            fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                self.visit_str(&value)
+            }
+
+            fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
+                let mut values = [0_i32; 4];
+                for (index, value) in values.iter_mut().enumerate() {
+                    *value = sequence
+                        .next_element()?
+                        .ok_or_else(|| A::Error::invalid_length(index, &self))?;
+                }
+                if sequence.next_element::<serde::de::IgnoredAny>()?.is_some() {
+                    return Err(A::Error::invalid_length(5, &self));
+                }
+                uuid_from_ints(&values).map_err(A::Error::custom)
+            }
+
+            fn visit_map<A>(self, map: A) -> Result<Self::Value, A::Error>
+            where
+                A: MapAccess<'de>,
+            {
+                let value = fastnbt::IntArray::deserialize(MapAccessDeserializer::new(map))?;
+                uuid_from_ints(value.as_ref()).map_err(A::Error::custom)
+            }
         }
 
-        match Repr::deserialize(deserializer)? {
-            Repr::String(value) => Self::parse(&value).map_err(D::Error::custom),
-            Repr::IntArray(value) => uuid_from_ints(value.as_ref()).map_err(D::Error::custom),
-            Repr::List(value) => uuid_from_ints(&value).map_err(D::Error::custom),
-        }
+        deserializer.deserialize_any(UuidVisitor)
     }
 }
 

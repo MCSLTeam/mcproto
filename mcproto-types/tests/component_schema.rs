@@ -247,13 +247,25 @@ fn uuid_and_shadow_color_representations_are_accepted() {
         0xccdd_eeffu32 as i32
     ]))
     .unwrap();
+    let int_array: Uuid = fastnbt::from_value(&NbtValue::IntArray(fastnbt::IntArray::new(vec![
+        0x0011_2233,
+        0x4455_6677,
+        0x8899_aabbu32 as i32,
+        0xccdd_eeffu32 as i32,
+    ])))
+    .unwrap();
     assert_eq!(compact, expected);
     assert_eq!(list, expected);
+    assert_eq!(int_array, expected);
     assert_eq!(
         serde_json::to_value(expected).unwrap(),
         json!(expected.to_string())
     );
     assert!(Uuid::parse("not-a-uuid").is_err());
+    assert!(
+        fastnbt::from_value::<Uuid>(&NbtValue::IntArray(fastnbt::IntArray::new(vec![1, 2, 3])))
+            .is_err()
+    );
 
     let rgba: ShadowColor = serde_json::from_value(json!([1.0, 0.5, 0.0, 0.25])).unwrap();
     assert_eq!(rgba.argb(), 0x40ff_8000);

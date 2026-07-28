@@ -297,3 +297,38 @@ fn decode_rejects_nbt_above_the_node_limit() {
     assert_eq!(error.bytes_processed(), encoded.len() - 1);
     assert!(error.source().is_some());
 }
+
+struct InterruptedOnceReader {
+    input: &'static [u8],
+    interrupted: bool,
+}
+
+impl Read for InterruptedOnceReader {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        if !self.interrupted {
+            self.interrupted = true;
+            return Err(io::ErrorKind::Interrupted.into());
+        }
+        let read = buffer.len().min(self.input.len());
+        buffer[..read].copy_from_slice(&self.input[..read]);
+        self.input = &self.input[read..];
+        Ok(read)
+    }
+}
+
+#[test]
+fn interrupted_read_does_not_mask_a_later_nbt_error() {
+    let mut reader = InterruptedOnceReader {
+        input: &[10, 99],
+        interrupted: false,
+    };
+    let error = TextComponent::decode(&mut reader).unwrap_err();
+
+    assert_eq!(
+        error.kind(),
+        CodecErrorKind::InvalidEncoding(InvalidEncodingReason::InvalidNbt)
+    );
+    assert_eq!(error.operation(), CodecOperation::Read);
+    assert_eq!(error.bytes_processed(), 2);
+    assert!(error.io_error().is_none());
+}
