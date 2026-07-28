@@ -226,7 +226,7 @@ impl TypeCodec for PrefixedString {
     }
 }
 
-/// Encoded as a String with max length of 32 767. 
+/// Encoded as a String with max length of 32 767.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct Identifier(pub String);
 

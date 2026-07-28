@@ -9,9 +9,9 @@ use mcproto_codec::{
 };
 use mcproto_types::{
     TypeCodec,
-    json_text_component::{JsonTextComponent, JsonValue},
+    component::{Content, JsonComponent},
+    json_text_component::JsonTextComponent,
 };
-use serde_json::json;
 
 fn roundtrip(value: JsonTextComponent) -> Vec<u8> {
     let mut encoded = Vec::new();
@@ -40,19 +40,17 @@ fn plain_text_is_a_json_string() {
 
 #[test]
 fn object_component_roundtrips() {
-    roundtrip(JsonTextComponent(json!({
-        "text": "Hello",
-        "bold": true,
-        "color": "gold"
-    })));
+    roundtrip(
+        JsonTextComponent::from_json_str(r#"{"text":"Hello","bold":true,"color":"gold"}"#).unwrap(),
+    );
 }
 
 #[test]
 fn array_component_roundtrips() {
-    roundtrip(JsonTextComponent(json!([
-        { "text": "Hello" },
-        { "text": " world", "italic": true }
-    ])));
+    roundtrip(
+        JsonTextComponent::from_json_str(r#"[{"text":"Hello"},{"text":" world","italic":true}]"#)
+            .unwrap(),
+    );
 }
 
 #[test]
@@ -324,9 +322,8 @@ fn partial_payload_read_reports_exact_progress() {
 fn parses_json_constructor() {
     assert_eq!(
         JsonTextComponent::from_json_str("{\"text\":\"hello\"}").unwrap(),
-        JsonTextComponent(JsonValue::Object(serde_json::Map::from_iter([(
-            "text".to_owned(),
-            JsonValue::String("hello".to_owned()),
-        )])))
+        JsonTextComponent(JsonComponent::object(Content::Text {
+            text: "hello".to_owned(),
+        }))
     );
 }

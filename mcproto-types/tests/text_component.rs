@@ -6,7 +6,8 @@ use std::{
 use mcproto_codec::error::{CodecErrorKind, CodecKind, CodecOperation, InvalidEncodingReason};
 use mcproto_types::{
     TypeCodec,
-    text_component::{NbtCompound, NbtValue, TextComponent},
+    component::{ComponentObject, NamedColor, NbtComponent, TextColor},
+    text_component::TextComponent,
 };
 
 fn roundtrip(value: TextComponent) -> Vec<u8> {
@@ -44,11 +45,10 @@ fn string_root_uses_java_modified_utf8() {
 
 #[test]
 fn styled_compound_roundtrips_through_fastnbt() {
-    let component = TextComponent::compound(NbtCompound::from([
-        ("text".to_owned(), NbtValue::String("Hello".to_owned())),
-        ("bold".to_owned(), NbtValue::Byte(1)),
-        ("color".to_owned(), NbtValue::String("gold".to_owned())),
-    ]));
+    let mut object = ComponentObject::text("Hello");
+    object.style.bold = Some(true);
+    object.style.color = Some(TextColor::Named(NamedColor::Gold));
+    let component = TextComponent(NbtComponent::Object(Box::new(object)));
 
     let encoded = roundtrip(component);
     assert_eq!(encoded.first(), Some(&10));
@@ -57,14 +57,13 @@ fn styled_compound_roundtrips_through_fastnbt() {
 
 #[test]
 fn compound_with_extra_components_roundtrips() {
-    let child = NbtCompound::from([("text".to_owned(), NbtValue::String(" world".to_owned()))]);
-    let component = TextComponent::compound(NbtCompound::from([
-        ("text".to_owned(), NbtValue::String("Hello".to_owned())),
-        (
-            "extra".to_owned(),
-            NbtValue::List(vec![NbtValue::Compound(child)]),
-        ),
-    ]));
+    let mut object = ComponentObject::text("Hello");
+    object.extra.push(NbtComponent::object(
+        mcproto_types::component::Content::Text {
+            text: " world".to_owned(),
+        },
+    ));
+    let component = TextComponent(NbtComponent::Object(Box::new(object)));
 
     roundtrip(component);
 }
@@ -80,12 +79,14 @@ fn decoding_consumes_only_one_string_component() {
 }
 
 #[test]
-fn decoding_consumes_only_one_compound_component() {
+fn empty_compound_is_rejected_without_consuming_following_data() {
     let mut input = [10, 0, 0xaa].as_slice();
+    let error = TextComponent::decode(&mut input).unwrap_err();
     assert_eq!(
-        TextComponent::decode(&mut input).unwrap(),
-        TextComponent::compound(NbtCompound::new())
+        error.kind(),
+        CodecErrorKind::InvalidEncoding(InvalidEncodingReason::InvalidNbt)
     );
+    assert_eq!(error.bytes_processed(), 2);
     assert_eq!(input, [0xaa]);
 }
 
@@ -180,14 +181,9 @@ fn string_root_rejects_too_many_modified_utf8_bytes_before_writing() {
 
 #[test]
 fn compound_rejects_oversized_nested_string_before_writing() {
-    let nested = NbtCompound::from([(
-        "text".to_owned(),
-        NbtValue::String("a".repeat(u16::MAX as usize + 1)),
-    )]);
-    let component = TextComponent::compound(NbtCompound::from([(
-        "hoverEvent".to_owned(),
-        NbtValue::Compound(nested),
-    )]));
+    let component = TextComponent(NbtComponent::Object(Box::new(ComponentObject::text(
+        "a".repeat(u16::MAX as usize + 1),
+    ))));
     let mut output = Vec::new();
     let error = component.encode(&mut output).unwrap_err();
     assert_eq!(
@@ -230,10 +226,9 @@ fn partial_string_write_reports_exact_progress() {
 
 #[test]
 fn partial_compound_write_reports_exact_progress() {
-    let component = TextComponent::compound(NbtCompound::from([(
-        "text".to_owned(),
-        NbtValue::String("hello".to_owned()),
-    )]));
+    let component = TextComponent(NbtComponent::Object(Box::new(ComponentObject::text(
+        "hello",
+    ))));
     let error = component
         .encode(&mut FailAfterWriter { remaining: 5 })
         .unwrap_err();

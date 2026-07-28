@@ -6,31 +6,35 @@ use mcproto_codec::{
     varint::{VarIntRead, VarIntWrite},
 };
 
-use crate::TypeCodec;
+use crate::{TypeCodec, component::JsonComponent};
 
 pub use serde_json::Value as JsonValue;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct JsonTextComponent(pub JsonValue);
+/// A VarInt-prefixed JSON representation of the current Java text component schema.
+#[derive(Debug, Clone, PartialEq)]
+pub struct JsonTextComponent(pub JsonComponent);
 
 impl JsonTextComponent {
     pub const MAX_DECODE_UTF16_CODE_UNITS: usize = 262_144;
     pub const MAX_DECODE_BYTES: usize = Self::MAX_DECODE_UTF16_CODE_UNITS * 3;
     pub const MAX_DECODE_ENCODED_BYTES: usize = Self::MAX_DECODE_BYTES + 3;
 
+    // Vanilla 1.20.3+ still refuses to encode larger JSON components.
     pub const MAX_ENCODE_UTF16_CODE_UNITS: usize = 32_767;
     pub const MAX_ENCODE_BYTES: usize = Self::MAX_ENCODE_UTF16_CODE_UNITS * 3;
     pub const MAX_ENCODE_ENCODED_BYTES: usize = Self::MAX_ENCODE_BYTES + 3;
 
+    const MAX_COMPONENT_DEPTH: usize = 512;
+
     pub fn text(value: impl Into<String>) -> Self {
-        Self(JsonValue::String(value.into()))
+        Self(JsonComponent::text(value))
     }
 
     pub fn from_json_str(value: &str) -> Result<Self, serde_json::Error> {
         serde_json::from_str(value).map(Self)
     }
 
-    fn validate(
+    fn validate_length(
         value: &str,
         max_code_units: usize,
         max_bytes: usize,
@@ -45,7 +49,6 @@ impl JsonTextComponent {
                 InvalidEncodingReason::StringTooLong { max_bytes },
             ));
         }
-
         if value.encode_utf16().count() > max_code_units {
             return Err(CodecError::invalid_encoding_for_operation(
                 CodecKind::JsonTextComponent,
@@ -54,8 +57,21 @@ impl JsonTextComponent {
                 InvalidEncodingReason::TooManyUtf16CodeUnits { max_code_units },
             ));
         }
-
         Ok(())
+    }
+
+    fn invalid_json(
+        operation: CodecOperation,
+        bytes_processed: usize,
+        source: impl std::error::Error + Send + Sync + 'static,
+    ) -> CodecError {
+        CodecError::invalid_encoding_for_operation_with_source(
+            CodecKind::JsonTextComponent,
+            operation,
+            bytes_processed,
+            InvalidEncodingReason::InvalidJson,
+            source,
+        )
     }
 }
 
@@ -65,8 +81,8 @@ impl Default for JsonTextComponent {
     }
 }
 
-impl From<JsonValue> for JsonTextComponent {
-    fn from(value: JsonValue) -> Self {
+impl From<JsonComponent> for JsonTextComponent {
+    fn from(value: JsonComponent) -> Self {
         Self(value)
     }
 }
@@ -85,16 +101,12 @@ impl From<&str> for JsonTextComponent {
 
 impl TypeCodec for JsonTextComponent {
     fn encode(&self, writer: &mut impl Write) -> Result<(), CodecError> {
-        let json = serde_json::to_string(&self.0).map_err(|source| {
-            CodecError::invalid_encoding_for_operation_with_source(
-                CodecKind::JsonTextComponent,
-                CodecOperation::Write,
-                0,
-                InvalidEncodingReason::InvalidJson,
-                source,
-            )
-        })?;
-        Self::validate(
+        self.0
+            .validate_depth(Self::MAX_COMPONENT_DEPTH)
+            .map_err(|source| Self::invalid_json(CodecOperation::Write, 0, source))?;
+        let json = serde_json::to_string(&self.0)
+            .map_err(|source| Self::invalid_json(CodecOperation::Write, 0, source))?;
+        Self::validate_length(
             &json,
             Self::MAX_ENCODE_UTF16_CODE_UNITS,
             Self::MAX_ENCODE_BYTES,
@@ -120,7 +132,6 @@ impl TypeCodec for JsonTextComponent {
                 InvalidEncodingReason::NegativeLength { value: byte_length },
             )
         })?;
-
         if byte_length > Self::MAX_DECODE_BYTES {
             return Err(CodecError::invalid_encoding(
                 CodecKind::JsonTextComponent,
@@ -150,7 +161,7 @@ impl TypeCodec for JsonTextComponent {
                 },
             )
         })?;
-        Self::validate(
+        Self::validate_length(
             &json,
             Self::MAX_DECODE_UTF16_CODE_UNITS,
             Self::MAX_DECODE_BYTES,
@@ -158,14 +169,11 @@ impl TypeCodec for JsonTextComponent {
             bytes_processed,
         )?;
 
-        serde_json::from_str(&json).map(Self).map_err(|source| {
-            CodecError::invalid_encoding_for_operation_with_source(
-                CodecKind::JsonTextComponent,
-                CodecOperation::Read,
-                bytes_processed,
-                InvalidEncodingReason::InvalidJson,
-                source,
-            )
-        })
+        let component: JsonComponent = serde_json::from_str(&json)
+            .map_err(|source| Self::invalid_json(CodecOperation::Read, bytes_processed, source))?;
+        component
+            .validate_depth(Self::MAX_COMPONENT_DEPTH)
+            .map_err(|source| Self::invalid_json(CodecOperation::Read, bytes_processed, source))?;
+        Ok(Self(component))
     }
 }

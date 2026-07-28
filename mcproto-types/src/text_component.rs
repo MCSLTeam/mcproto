@@ -1,109 +1,92 @@
 use std::{
     collections::HashMap,
     error::Error,
+    fmt,
     io::{self, Read, Write},
 };
 
 use fastnbt::{
-    DeOpts, SerOpts,
+    SerOpts, Tag,
     stream::{Parser, Value as StreamValue},
 };
-use mcproto_codec::error::{CodecError, CodecKind, CodecOperation, InvalidEncodingReason};
+use mcproto_codec::{
+    error::{CodecError, CodecKind, CodecOperation, InvalidEncodingReason},
+    io::write_all_counted,
+};
 
-use crate::TypeCodec;
+use crate::{TypeCodec, component::NbtComponent};
 
-/// The contents of a `TAG_Compound` text component.
-pub type NbtCompound = HashMap<String, NbtValue>;
-
-/// An owned NBT value provided by `fastnbt`.
 pub use fastnbt::Value as NbtValue;
 
-/// A text component in its two valid network NBT root forms.
-///
-/// Plain text without styling, events, or siblings may use `TAG_String`.
-/// Every other component uses `TAG_Compound`.
+/// A network NBT representation of the current Java text component schema.
 #[derive(Debug, Clone, PartialEq)]
-pub enum TextComponent {
-    String(String),
-    Compound(NbtCompound),
-}
+pub struct TextComponent(pub NbtComponent);
 
 impl TextComponent {
-    pub fn text(value: impl Into<String>) -> Self {
-        Self::String(value.into())
-    }
+    const MAX_COMPONENT_DEPTH: usize = 512;
 
-    pub fn compound(value: NbtCompound) -> Self {
-        Self::Compound(value)
+    pub fn text(value: impl Into<String>) -> Self {
+        Self(NbtComponent::text(value))
     }
 }
 
 impl Default for TextComponent {
     fn default() -> Self {
-        Self::String(String::new())
+        Self::text("")
+    }
+}
+
+impl From<NbtComponent> for TextComponent {
+    fn from(value: NbtComponent) -> Self {
+        Self(value)
     }
 }
 
 impl From<String> for TextComponent {
     fn from(value: String) -> Self {
-        Self::String(value)
+        Self::text(value)
     }
 }
 
 impl From<&str> for TextComponent {
     fn from(value: &str) -> Self {
-        Self::String(value.to_owned())
-    }
-}
-
-impl From<NbtCompound> for TextComponent {
-    fn from(value: NbtCompound) -> Self {
-        Self::Compound(value)
+        Self::text(value)
     }
 }
 
 impl TypeCodec for TextComponent {
     fn encode(&self, writer: &mut impl Write) -> Result<(), CodecError> {
-        match self {
-            Self::String(value) => encode_string(value, writer),
-            Self::Compound(value) => encode_compound(value, writer),
-        }
+        self.0
+            .validate_depth(Self::MAX_COMPONENT_DEPTH)
+            .map_err(|source| invalid_nbt(CodecOperation::Write, 0, source))?;
+        let normalized = self.0.normalized_root_for_nbt();
+        let value = fastnbt::to_value(&normalized)
+            .map_err(|source| invalid_nbt(CodecOperation::Write, 0, source))?;
+        validate_nbt_strings(&value, CodecOperation::Write, 0)?;
+        encode_root(&value, writer)
     }
 
     fn decode(reader: &mut impl Read) -> Result<Self, CodecError> {
-        let mut reader = CountedReader::new(reader);
-        let mut root_tag = [0_u8; 1];
-        reader.read_exact(&mut root_tag).map_err(|error| {
-            CodecError::from_read_error(CodecKind::TextComponent, reader.processed, error)
-        })?;
-
-        match root_tag[0] {
-            8 => decode_string(&mut reader).map(Self::String),
-            10 => decode_compound(&mut reader).map(Self::Compound),
-            tag => Err(CodecError::invalid_encoding(
-                CodecKind::TextComponent,
-                reader.processed,
-                InvalidEncodingReason::InvalidTextComponentRootTag { tag },
-            )),
-        }
+        let (value, bytes_processed) = decode_root(reader)?;
+        let component: NbtComponent = fastnbt::from_value(&value)
+            .map_err(|source| invalid_nbt(CodecOperation::Read, bytes_processed, source))?;
+        component
+            .validate_depth(Self::MAX_COMPONENT_DEPTH)
+            .map_err(|source| invalid_nbt(CodecOperation::Read, bytes_processed, source))?;
+        Ok(Self(component.normalized_root_for_nbt()))
     }
 }
 
-fn encode_string(value: &str, writer: &mut impl Write) -> Result<(), CodecError> {
-    validate_nbt_string(value, CodecOperation::Write, 0)?;
-
-    // fastnbt only accepts compounds at the Serde root. Wrapping the value in
-    // a one-entry compound lets fastnbt perform the NBT string encoding; only
-    // the compound framing is removed below.
+fn encode_root(value: &NbtValue, writer: &mut impl Write) -> Result<(), CodecError> {
     let wrapper = HashMap::from([("", value)]);
     let encoded = fastnbt::to_bytes_with_opts(&wrapper, SerOpts::network_nbt())
-        .map_err(|error| invalid_nbt(CodecOperation::Write, 0, error))?;
+        .map_err(|source| invalid_nbt(CodecOperation::Write, 0, source))?;
 
-    if encoded.len() < 7
-        || encoded[0] != 10
-        || encoded[1] != 8
+    if encoded.len() < 5
+        || encoded[0] != Tag::Compound as u8
         || encoded[2..4] != [0, 0]
-        || encoded[encoded.len() - 1] != 0
+        || encoded.last() != Some(&(Tag::End as u8))
+        || !matches!(encoded[1], 8 | 10)
     {
         return Err(CodecError::invalid_encoding_for_operation(
             CodecKind::TextComponent,
@@ -113,65 +96,42 @@ fn encode_string(value: &str, writer: &mut impl Write) -> Result<(), CodecError>
         ));
     }
 
-    let payload_len = u16::from_be_bytes([encoded[4], encoded[5]]) as usize;
-    if encoded.len() != payload_len + 7 {
-        return Err(CodecError::invalid_encoding_for_operation(
+    write_all_counted(writer, &encoded[1..2], CodecKind::TextComponent, 0)?;
+    write_all_counted(
+        writer,
+        &encoded[4..encoded.len() - 1],
+        CodecKind::TextComponent,
+        1,
+    )
+}
+
+fn decode_root(reader: &mut impl Read) -> Result<(NbtValue, usize), CodecError> {
+    let mut reader = CountedReader::new(reader);
+    let mut root_tag = [0_u8; 1];
+    reader.read_exact(&mut root_tag).map_err(|source| {
+        CodecError::from_read_error(CodecKind::TextComponent, reader.processed, source)
+    })?;
+    if !matches!(root_tag[0], 8 | 10) {
+        return Err(CodecError::invalid_encoding(
             CodecKind::TextComponent,
-            CodecOperation::Write,
-            0,
-            InvalidEncodingReason::StringTooLong {
-                max_bytes: u16::MAX as usize,
-            },
+            reader.processed,
+            InvalidEncodingReason::InvalidTextComponentRootTag { tag: root_tag[0] },
         ));
     }
 
-    let mut writer = CountedWriter::new(writer);
-    writer.write_all(&encoded[1..2]).map_err(|error| {
-        CodecError::from_write_error(CodecKind::TextComponent, writer.processed, error)
-    })?;
-    writer
-        .write_all(&encoded[4..encoded.len() - 1])
-        .map_err(|error| {
-            CodecError::from_write_error(CodecKind::TextComponent, writer.processed, error)
-        })
-}
-
-fn encode_compound(value: &NbtCompound, writer: &mut impl Write) -> Result<(), CodecError> {
-    validate_compound_strings(value)?;
-
-    let mut writer = CountedWriter::new(writer);
-    let result = fastnbt::to_writer_with_opts(&mut writer, value, SerOpts::network_nbt());
-    match result {
-        Ok(()) => Ok(()),
-        Err(error) => {
-            let processed = writer.processed;
-            match writer.failure.take() {
-                Some(source) => Err(CodecError::from_write_error(
-                    CodecKind::TextComponent,
-                    processed,
-                    source,
-                )),
-                None => Err(invalid_nbt(CodecOperation::Write, processed, error)),
-            }
-        }
-    }
-}
-
-fn decode_string(reader: &mut CountedReader<'_, impl Read>) -> Result<String, CodecError> {
-    // The stream parser expects every root tag to have a name. Network text
-    // components omit it, so inject an empty name without consuming input.
+    // The stream parser requires a root name; network text components omit it.
     let mut prefixed = PrefixReader {
-        prefix: &[8, 0, 0],
-        inner: reader,
+        prefix: &[root_tag[0], 0, 0],
+        inner: &mut reader,
     };
-    let result = Parser::new(&mut prefixed).next();
+    let result = (|| {
+        let mut parser = Parser::new(&mut prefixed);
+        let first = parser.next().map_err(NbtTreeError::Parser)?;
+        parse_stream_value(&mut parser, first, 1)
+    })();
+
     match result {
-        Ok(StreamValue::String(Some(name), value)) if name.is_empty() => Ok(value),
-        Ok(_) => Err(CodecError::invalid_encoding(
-            CodecKind::TextComponent,
-            prefixed.inner.processed,
-            InvalidEncodingReason::InvalidNbt,
-        )),
+        Ok(value) => Ok((value, prefixed.inner.processed)),
         Err(error) => {
             let processed = prefixed.inner.processed;
             match prefixed.inner.failure.take() {
@@ -186,24 +146,97 @@ fn decode_string(reader: &mut CountedReader<'_, impl Read>) -> Result<String, Co
     }
 }
 
-fn decode_compound(reader: &mut CountedReader<'_, impl Read>) -> Result<NbtCompound, CodecError> {
-    let mut prefixed = PrefixReader {
-        prefix: &[10],
-        inner: reader,
-    };
-    let result = fastnbt::from_reader_with_opts(&mut prefixed, DeOpts::network_nbt());
-    match result {
-        Ok(value) => Ok(value),
-        Err(error) => {
-            let processed = prefixed.inner.processed;
-            match prefixed.inner.failure.take() {
-                Some(source) => Err(CodecError::from_read_error(
-                    CodecKind::TextComponent,
-                    processed,
-                    source,
-                )),
-                None => Err(invalid_nbt(CodecOperation::Read, processed, error)),
+fn parse_stream_value<R: Read>(
+    parser: &mut Parser<R>,
+    value: StreamValue,
+    depth: usize,
+) -> Result<NbtValue, NbtTreeError> {
+    if depth > TextComponent::MAX_COMPONENT_DEPTH {
+        return Err(NbtTreeError::TooDeep);
+    }
+    match value {
+        StreamValue::Byte(_, value) => Ok(NbtValue::Byte(value)),
+        StreamValue::Short(_, value) => Ok(NbtValue::Short(value)),
+        StreamValue::Int(_, value) => Ok(NbtValue::Int(value)),
+        StreamValue::Long(_, value) => Ok(NbtValue::Long(value)),
+        StreamValue::Float(_, value) => Ok(NbtValue::Float(value)),
+        StreamValue::Double(_, value) => Ok(NbtValue::Double(value)),
+        StreamValue::ByteArray(_, value) => Ok(NbtValue::ByteArray(fastnbt::ByteArray::new(value))),
+        StreamValue::String(_, value) => Ok(NbtValue::String(value)),
+        StreamValue::IntArray(_, value) => Ok(NbtValue::IntArray(fastnbt::IntArray::new(value))),
+        StreamValue::LongArray(_, value) => Ok(NbtValue::LongArray(fastnbt::LongArray::new(value))),
+        StreamValue::List(_, _, length) => {
+            let length = usize::try_from(length).map_err(|_| NbtTreeError::InvalidStructure)?;
+            // A declared length is untrusted and can exceed the remaining packet.
+            let mut values = Vec::with_capacity(length.min(1024));
+            for _ in 0..length {
+                let value = parser.next().map_err(NbtTreeError::Parser)?;
+                values.push(parse_stream_value(parser, value, depth + 1)?);
             }
+            if !matches!(parser.next(), Ok(StreamValue::ListEnd)) {
+                return Err(NbtTreeError::InvalidStructure);
+            }
+            Ok(NbtValue::List(values))
+        }
+        StreamValue::Compound(_) => {
+            let mut values = HashMap::new();
+            loop {
+                let value = parser.next().map_err(NbtTreeError::Parser)?;
+                if matches!(value, StreamValue::CompoundEnd) {
+                    break;
+                }
+                let name = stream_name(&value).ok_or(NbtTreeError::InvalidStructure)?;
+                values.insert(
+                    name.to_owned(),
+                    parse_stream_value(parser, value, depth + 1)?,
+                );
+            }
+            Ok(NbtValue::Compound(values))
+        }
+        StreamValue::ListEnd | StreamValue::CompoundEnd => Err(NbtTreeError::InvalidStructure),
+    }
+}
+
+fn stream_name(value: &StreamValue) -> Option<&str> {
+    match value {
+        StreamValue::Byte(name, _)
+        | StreamValue::Short(name, _)
+        | StreamValue::Int(name, _)
+        | StreamValue::Long(name, _)
+        | StreamValue::Float(name, _)
+        | StreamValue::Double(name, _)
+        | StreamValue::ByteArray(name, _)
+        | StreamValue::String(name, _)
+        | StreamValue::List(name, _, _)
+        | StreamValue::Compound(name)
+        | StreamValue::IntArray(name, _)
+        | StreamValue::LongArray(name, _) => name.as_deref(),
+        StreamValue::ListEnd | StreamValue::CompoundEnd => None,
+    }
+}
+
+#[derive(Debug)]
+enum NbtTreeError {
+    Parser(fastnbt::stream::Error),
+    InvalidStructure,
+    TooDeep,
+}
+
+impl fmt::Display for NbtTreeError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Parser(source) => source.fmt(formatter),
+            Self::InvalidStructure => formatter.write_str("invalid NBT tree structure"),
+            Self::TooDeep => formatter.write_str("NBT tree is nested too deeply"),
+        }
+    }
+}
+
+impl Error for NbtTreeError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Parser(source) => Some(source),
+            _ => None,
         }
     }
 }
@@ -222,29 +255,25 @@ fn invalid_nbt(
     )
 }
 
-fn validate_compound_strings(compound: &NbtCompound) -> Result<(), CodecError> {
-    let mut pending = Vec::with_capacity(compound.len());
-    for (name, value) in compound {
-        validate_nbt_string(name, CodecOperation::Write, 0)?;
-        pending.push(value);
-    }
-
+fn validate_nbt_strings(
+    root: &NbtValue,
+    operation: CodecOperation,
+    bytes_processed: usize,
+) -> Result<(), CodecError> {
+    let mut pending = vec![root];
     while let Some(value) = pending.pop() {
         match value {
-            NbtValue::String(value) => {
-                validate_nbt_string(value, CodecOperation::Write, 0)?;
-            }
+            NbtValue::String(value) => validate_nbt_string(value, operation, bytes_processed)?,
             NbtValue::List(values) => pending.extend(values),
             NbtValue::Compound(values) => {
                 for (name, value) in values {
-                    validate_nbt_string(name, CodecOperation::Write, 0)?;
+                    validate_nbt_string(name, operation, bytes_processed)?;
                     pending.push(value);
                 }
             }
             _ => {}
         }
     }
-
     Ok(())
 }
 
@@ -263,7 +292,6 @@ fn validate_nbt_string(
         };
         length.checked_add(width)
     });
-
     if !matches!(encoded_len, Some(length) if length <= u16::MAX as usize) {
         return Err(CodecError::invalid_encoding_for_operation(
             CodecKind::TextComponent,
@@ -274,7 +302,6 @@ fn validate_nbt_string(
             },
         ));
     }
-
     Ok(())
 }
 
@@ -299,7 +326,6 @@ impl<R: Read + ?Sized> Read for CountedReader<'_, R> {
         if buffer.is_empty() {
             return Ok(0);
         }
-
         match self.inner.read(buffer) {
             Ok(0) => {
                 let error = io::Error::new(io::ErrorKind::UnexpectedEof, "unexpected end of NBT");
@@ -314,64 +340,16 @@ impl<R: Read + ?Sized> Read for CountedReader<'_, R> {
                 Ok(read)
             }
             Err(error) => {
+                let returned = clone_io_error(&error);
                 self.failure = Some(error);
-                let stored = self.failure.as_ref().expect("error was just stored");
-                Err(clone_io_error(stored))
+                Err(returned)
             }
         }
-    }
-}
-
-struct CountedWriter<'a, W: ?Sized> {
-    inner: &'a mut W,
-    processed: usize,
-    failure: Option<io::Error>,
-}
-
-impl<'a, W: ?Sized> CountedWriter<'a, W> {
-    fn new(inner: &'a mut W) -> Self {
-        Self {
-            inner,
-            processed: 0,
-            failure: None,
-        }
-    }
-}
-
-impl<W: Write + ?Sized> Write for CountedWriter<'_, W> {
-    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
-        if buffer.is_empty() {
-            return Ok(0);
-        }
-
-        match self.inner.write(buffer) {
-            Ok(0) => {
-                let error = io::Error::new(io::ErrorKind::WriteZero, "failed to write NBT");
-                self.failure = Some(error);
-                Err(io::Error::new(
-                    io::ErrorKind::WriteZero,
-                    "failed to write NBT",
-                ))
-            }
-            Ok(written) => {
-                self.processed += written;
-                Ok(written)
-            }
-            Err(error) => {
-                self.failure = Some(error);
-                let stored = self.failure.as_ref().expect("error was just stored");
-                Err(clone_io_error(stored))
-            }
-        }
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        self.inner.flush()
     }
 }
 
 struct PrefixReader<'a, 'b, R: ?Sized> {
-    prefix: &'static [u8],
+    prefix: &'a [u8],
     inner: &'a mut CountedReader<'b, R>,
 }
 
