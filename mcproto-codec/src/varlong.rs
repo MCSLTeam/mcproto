@@ -1,9 +1,37 @@
+//! Reading and writing [Minecraft protocol VarLong] values.
+//!
+//! [Minecraft protocol VarLong]: https://minecraft.wiki/w/Java_Edition_protocol/Packets#VarInt_and_VarLong
+
 use std::io::{Read, Write};
 
 use crate::error::{CodecError, CodecKind, InvalidEncodingReason};
 use crate::io::{read_exact_counted, write_all_counted};
 
+/// Extension methods for writing [Minecraft protocol VarLong] values.
+///
+/// This trait is implemented for every [`Write`] type.
+///
+/// # Example
+///
+/// ```
+/// use mcproto_codec::varlong::VarLongWrite;
+///
+/// let mut output = Vec::new();
+/// output.write_varlong(9_223_372_036_854_775_000)?;
+///
+/// # Ok::<(), mcproto_codec::error::CodecError>(())
+/// ```
+///
+/// [Minecraft protocol VarLong]: https://minecraft.wiki/w/Java_Edition_protocol/Packets#VarInt_and_VarLong
 pub trait VarLongWrite: Write {
+    /// Writes `value` to this writer as a VarLong.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`CodecError`] if the underlying writer fails. The error's
+    /// byte count reports how much of this value was written successfully.
+    ///
+    /// [`CodecError`]: crate::error::CodecError
     #[inline]
     fn write_varlong(&mut self, value: i64) -> Result<(), CodecError> {
         let mut value = value as u64;
@@ -25,7 +53,34 @@ pub trait VarLongWrite: Write {
     }
 }
 
+/// Extension methods for reading [Minecraft protocol VarLong] values.
+///
+/// This trait is implemented for every [`Read`] type.
+///
+/// # Example
+///
+/// ```
+/// use mcproto_codec::varlong::{VarLongRead, VarLongWrite};
+///
+/// let mut encoded = Vec::new();
+/// encoded.write_varlong(9_223_372_036_854_775_000)?;
+///
+/// let value = encoded.as_slice().read_varlong()?;
+/// assert_eq!(value, 9_223_372_036_854_775_000);
+///
+/// # Ok::<(), mcproto_codec::error::CodecError>(())
+/// ```
+///
+/// [Minecraft protocol VarLong]: https://minecraft.wiki/w/Java_Edition_protocol/Packets#VarInt_and_VarLong
 pub trait VarLongRead: Read {
+    /// Reads and returns one VarLong from this reader.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`CodecError`] if the input ends early, the underlying reader
+    /// fails, or the input is not a valid VarLong.
+    ///
+    /// [`CodecError`]: crate::error::CodecError
     #[inline]
     fn read_varlong(&mut self) -> Result<i64, CodecError> {
         let mut result = 0u64;
