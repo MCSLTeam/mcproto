@@ -2,24 +2,81 @@ use std::{error::Error, fmt, io};
 
 type BoxedError = Box<dyn Error + Send + Sync + 'static>;
 
+/// Identifies the protocol codec that reported an error.
+///
+/// A [`CodecError`] stores the codec that originally reported the error and may
+/// also store enclosing codecs as additional context. Protocol descriptions are
+/// based on the [Minecraft Java Edition protocol packet format].
+///
+/// Signed integer codecs use [two's-complement] representation.
+///
+/// [Minecraft Java Edition protocol packet format]: https://minecraft.wiki/w/Java_Edition_protocol/Packets
+/// [two's-complement]: https://en.wikipedia.org/wiki/Two%27s_complement
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum CodecKind {
+    /// A variable-length, two's-complement signed 32-bit integer.
+    ///
+    /// Values range from -2,147,483,648 through 2,147,483,647.
     VarInt,
+    /// A variable-length, two's-complement signed 64-bit integer.
+    ///
+    /// Values range from -9,223,372,036,854,775,808 through
+    /// 9,223,372,036,854,775,807.
     VarLong,
+    /// A boolean encoded as `0x00` for false or `0x01` for true.
     Boolean,
+    /// A two's-complement signed 8-bit integer from -128 through 127.
     Byte,
+    /// An unsigned 8-bit integer from 0 through 255.
     UnsignedByte,
+    /// A two's-complement signed 16-bit integer from -32,768 through 32,767.
     Short,
+    /// An unsigned 16-bit integer from 0 through 65,535.
     UnsignedShort,
+    /// A two's-complement signed 32-bit integer from -2,147,483,648 through
+    /// 2,147,483,647.
     Int,
+    /// A two's-complement signed 64-bit integer from -9,223,372,036,854,775,808
+    /// through 9,223,372,036,854,775,807.
     Long,
+    /// A UTF-8 string prefixed by its byte length as a VarInt.
+    ///
+    /// The protocol limits both the UTF-8 payload size and the number of UTF-16
+    /// code units. Supplementary [Unicode scalar values] count as two UTF-16
+    /// code units. The general protocol limit is 32,767 UTF-16 code units and
+    /// three UTF-8 bytes per permitted code unit; a particular field may impose
+    /// a lower limit.
+    ///
+    /// [Unicode scalar values]: https://www.unicode.org/glossary/#unicode_scalar_value
     String,
+    /// A resource identifier encoded as a [`String`](Self::String).
+    ///
+    /// The namespace permits `[a-z0-9._-]`; the value permits
+    /// `[a-z0-9._/-]`. See the protocol's [identifier format] for details.
+    ///
+    /// [identifier format]: https://minecraft.wiki/w/Java_Edition_protocol/Packets#Identifier
     Identifier,
+    /// A text component encoded as an NBT tag.
+    ///
+    /// Plain text-only components may use an NBT string tag. Components with
+    /// styling, events, or other data use an NBT compound tag. See the
+    /// [text component format] and [NBT specification].
+    ///
+    /// [text component format]: https://minecraft.wiki/w/Text_component_format
+    /// [NBT specification]: https://minecraft.wiki/w/NBT_format
     TextComponent,
+    /// A text component encoded as JSON in a protocol string.
+    ///
+    /// Since Java Edition 1.20.3, the vanilla implementation permits up to
+    /// 262,144 UTF-16 code units when decoding but refuses to encode more than
+    /// 32,767. See the [text component format].
+    ///
+    /// [text component format]: https://minecraft.wiki/w/Text_component_format
     JsonTextComponent,
 }
 
+/// Formats a codec kind using its protocol name, such as `VarInt` or `Boolean`.
 impl fmt::Display for CodecKind {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -40,13 +97,17 @@ impl fmt::Display for CodecKind {
     }
 }
 
+/// Identifies whether an error occurred while decoding or encoding data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum CodecOperation {
+    /// A read (decoding) operation.
     Read,
+    /// A write (encoding) operation.
     Write,
 }
 
+/// Formats an operation as `reading` or `writing`.
 impl fmt::Display for CodecOperation {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -55,41 +116,64 @@ impl fmt::Display for CodecOperation {
         }
     }
 }
-
+/// Describes why encoded protocol data is invalid.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum InvalidEncodingReason {
+    /// The encoding exceeds the maximum allowed length in bytes.
     TooLong {
+        /// The maximum number of bytes permitted for this encoding.
         max_bytes: usize,
     },
+    /// The terminal byte of the encoding contains bits outside the allowed mask.
     ValueOutOfRange {
+        /// The final byte that contains disallowed bits.
         terminal_byte: u8,
+        /// A mask whose set bits identify the permitted bits in the final byte.
         allowed_mask: u8,
     },
+    /// The boolean value is invalid (not 0x00 or 0x01).
     InvalidBooleanValue {
+        /// The byte read instead of the permitted `0x00` or `0x01`.
         value: u8,
     },
+    /// The string exceeds the maximum allowed length in bytes when encoded in UTF-8.
     StringTooLong {
+        /// The maximum permitted size of the UTF-8 payload, excluding its
+        /// VarInt length prefix.
         max_bytes: usize,
     },
+    /// The string exceeds the maximum allowed length in UTF-16 code units.
     TooManyUtf16CodeUnits {
+        /// The maximum permitted number of UTF-16 code units.
         max_code_units: usize,
     },
+    /// The length of the data is negative, which is invalid.
     NegativeLength {
+        /// The negative length decoded from the data.
         value: i32,
     },
+    /// The data contains an invalid UTF-8 sequence.
     InvalidUtf8 {
+        /// The byte offset in the UTF-8 payload up to which the data is valid.
         valid_up_to: usize,
+        /// The length of the invalid sequence, or `None` if the input ends in
+        /// an incomplete sequence.
         error_len: Option<usize>,
     },
+    /// The data is not a valid Minecraft identifier.
     InvalidIdentifier,
+    /// The data is not valid NBT (Named Binary Tag) data.
     InvalidNbt,
+    /// The data is not valid JSON.
     InvalidJson,
+    /// The root tag of a text component is invalid (not TAG_String or TAG_Compound).
     InvalidTextComponentRootTag {
+        /// The unsupported NBT root tag identifier.
         tag: u8,
     },
 }
-
+/// Formats an invalid encoding reason as a diagnostic message.
 impl fmt::Display for InvalidEncodingReason {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -140,17 +224,58 @@ impl fmt::Display for InvalidEncodingReason {
         }
     }
 }
-
+/// Classifies an error reported by a protocol codec.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum CodecErrorKind {
+    /// An I/O error other than an unexpected end of input occurred.
     Io,
+    /// A read ended before the codec received all required bytes.
     UnexpectedEof,
+    /// The data could not be decoded or encoded according to the codec's
+    /// format or limits.
     InvalidEncoding(InvalidEncodingReason),
 }
 
+/// An error produced while reading or writing protocol data.
+///
+/// The error records the originating [`CodecKind`], the [`CodecOperation`], the
+/// progress within that codec, and optional enclosing codec contexts. I/O and
+/// parser errors are retained as an error [`source`](Error::source).
+///
+/// Error enums are non-exhaustive, so downstream matches must include a
+/// wildcard arm.
+///
+/// # Example
+///
+/// ```
+/// use mcproto_codec::{
+///     error::{CodecErrorKind, CodecKind, CodecOperation},
+///     varint::VarIntRead,
+/// };
+///
+/// let mut input = [0x80].as_slice();
+/// let error = input
+///     .read_varint()
+///     .unwrap_err()
+///     .with_context(CodecKind::String);
+///
+/// assert_eq!(error.codec(), CodecKind::VarInt);
+/// assert_eq!(error.operation(), CodecOperation::Read);
+/// assert_eq!(error.bytes_processed(), 1);
+/// assert_eq!(error.contexts(), &[CodecKind::String]);
+///
+/// match error.kind() {
+///     CodecErrorKind::UnexpectedEof => {}
+///     _ => panic!("unexpected error: {error}"),
+/// }
+/// ```
 #[derive(Debug)]
 pub struct CodecError {
+    /// The error classification.
+    ///
+    /// This field and [`kind`](Self::kind) expose the same value. The accessor
+    /// is convenient when working through a shared reference.
     pub kind: CodecErrorKind,
     codec: CodecKind,
     contexts: Vec<CodecKind>,
@@ -160,41 +285,69 @@ pub struct CodecError {
 }
 
 impl CodecError {
+    /// Returns the error classification.
     pub const fn kind(&self) -> CodecErrorKind {
         self.kind
     }
-
+    /// Returns the codec that originally reported the error.
     pub const fn codec(&self) -> CodecKind {
         self.codec
     }
-
+    /// Returns the outermost enclosing codec context, if one was added.
+    ///
+    /// This is the last element of [`contexts`](Self::contexts), not the
+    /// originating codec returned by [`codec`](Self::codec).
     pub fn context(&self) -> Option<CodecKind> {
         self.contexts.last().copied()
     }
-
+    /// Returns all enclosing codec contexts, ordered from nearest to outermost.
+    ///
+    /// The originating codec is not included. Each call to
+    /// [`with_context`](Self::with_context) appends one element.
     pub fn contexts(&self) -> &[CodecKind] {
         &self.contexts
     }
-
+    /// Returns the operation being performed when the error occurred.
     pub const fn operation(&self) -> CodecOperation {
         self.operation
     }
-
-    /// Returns the number of bytes successfully processed before the error.
+    /// Returns the byte progress reported by the originating codec.
+    ///
+    /// Built-in codecs count bytes from the start of their encoded value. Bytes
+    /// successfully read or written before an I/O failure are included. A byte
+    /// that was read and then found to be invalid is also included. For a
+    /// length-prefixed value, the originating codec determines whether its
+    /// prefix is part of the count.
+    ///
+    /// Adding an outer context does not translate this value into an offset
+    /// within the enclosing codec.
     pub const fn bytes_processed(&self) -> usize {
         self.bytes_processed
     }
-
+    /// Returns the underlying [`io::Error`], if the source is an I/O error.
+    ///
+    /// Invalid NBT or JSON errors may have a non-I/O source; access those
+    /// through [`Error::source`] instead.
     pub fn io_error(&self) -> Option<&io::Error> {
         self.source.as_deref()?.downcast_ref::<io::Error>()
     }
 
-    /// Adds the outer codec that was active when this error occurred.
+    /// Adds an enclosing codec to the error's context chain.
+    ///
+    /// Contexts should be added as the error propagates outward. Repeated calls
+    /// therefore order [`contexts`](Self::contexts) from nearest to outermost,
+    /// and [`context`](Self::context) returns the most recently added context.
     pub fn with_context(mut self, context: CodecKind) -> Self {
         self.contexts.push(context);
         self
     }
-
+    /// Creates an error from an I/O failure that occurred while reading.
+    ///
+    /// [`io::ErrorKind::UnexpectedEof`] maps to
+    /// [`CodecErrorKind::UnexpectedEof`]; every other error kind maps to
+    /// [`CodecErrorKind::Io`]. The source error is retained.
+    ///
+    /// `bytes_processed` is the number of bytes read before `source` occurred.
     pub fn from_read_error(codec: CodecKind, bytes_processed: usize, source: io::Error) -> Self {
         let kind = if source.kind() == io::ErrorKind::UnexpectedEof {
             CodecErrorKind::UnexpectedEof
@@ -211,7 +364,11 @@ impl CodecError {
             source: Some(Box::new(source)),
         }
     }
-
+    /// Creates an error from an I/O failure that occurred while writing.
+    ///
+    /// All write errors map to [`CodecErrorKind::Io`], and the source error is
+    /// retained. `bytes_processed` is the number of bytes written before
+    /// `source` occurred.
     pub fn from_write_error(codec: CodecKind, bytes_processed: usize, source: io::Error) -> Self {
         Self {
             kind: CodecErrorKind::Io,
@@ -222,7 +379,10 @@ impl CodecError {
             source: Some(Box::new(source)),
         }
     }
-    /// Tips：encoding是编码格式，不是encode过程
+    /// Creates an invalid encoding error for a read operation.
+    ///
+    /// Use [`invalid_encoding_for_operation`](Self::invalid_encoding_for_operation)
+    /// when the operation is not necessarily [`CodecOperation::Read`].
     pub const fn invalid_encoding(
         codec: CodecKind,
         bytes_processed: usize,
@@ -231,6 +391,10 @@ impl CodecError {
         Self::invalid_encoding_for_operation(codec, CodecOperation::Read, bytes_processed, reason)
     }
 
+    /// Creates an invalid encoding error for the specified operation.
+    ///
+    /// Unlike [`invalid_encoding`](Self::invalid_encoding), this constructor
+    /// does not assume that the error occurred while reading.
     pub const fn invalid_encoding_for_operation(
         codec: CodecKind,
         operation: CodecOperation,
@@ -246,7 +410,11 @@ impl CodecError {
             source: None,
         }
     }
-
+    /// Creates an invalid encoding error with an underlying source error.
+    ///
+    /// `operation` may be either reading or writing. The supplied error is
+    /// available through [`Error::source`]; if it is an [`io::Error`], it is
+    /// also available through [`io_error`](Self::io_error).
     pub fn invalid_encoding_for_operation_with_source(
         codec: CodecKind,
         operation: CodecOperation,
