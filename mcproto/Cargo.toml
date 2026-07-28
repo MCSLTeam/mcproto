@@ -10,5 +10,11 @@ readme = "README.md"
 keywords = ["Minecraft", "Serde", "MC", "Protocol", "Quick"]
 categories = ["network-programming", "asynchronous", "game-development", "encoding"]
 
+[features]
+default = ["codec", "types"]
+codec = ["dep:mcproto-codec"]
+types = ["codec", "dep:mcproto-types"]
+
 [dependencies]
-mcproto-codec.workspace = true
+mcproto-codec = { workspace = true, optional = true }
+mcproto-types = { workspace = true, optional = true }

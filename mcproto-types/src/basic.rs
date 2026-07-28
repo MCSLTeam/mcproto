@@ -4,7 +4,10 @@ use mcproto_codec::{
     io::{read_exact_counted, write_all_counted},
     varint::{VarIntRead, VarIntWrite},
 };
-use std::io::{Read, Write};
+use std::{
+    fmt,
+    io::{Read, Write},
+};
 
 /// True is encoded as 0x01, false as 0x00.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -178,14 +181,8 @@ impl PrefixedString {
             .map_err(|error| error.with_context(CodecKind::String))?;
         write_all_counted(writer, bytes, CodecKind::String, prefix_size)
     }
-}
 
-impl TypeCodec for PrefixedString {
-    fn encode(&self, writer: &mut impl Write) -> Result<(), CodecError> {
-        Self::encode_value(&self.0, writer)
-    }
-
-    fn decode(reader: &mut impl Read) -> Result<Self, CodecError> {
+    fn decode_value(reader: &mut impl Read) -> Result<(String, usize), CodecError> {
         let (byte_length, prefix_size) = reader
             .read_varint_with_size()
             .map_err(|error| error.with_context(CodecKind::String))?;
@@ -209,31 +206,55 @@ impl TypeCodec for PrefixedString {
 
         let mut bytes = vec![0; byte_length];
         read_exact_counted(reader, &mut bytes, CodecKind::String, prefix_size)?;
-
+        let bytes_processed = prefix_size + byte_length;
         let value = String::from_utf8(bytes).map_err(|error| {
             let utf8_error = error.utf8_error();
             CodecError::invalid_encoding(
                 CodecKind::String,
-                prefix_size + byte_length,
+                bytes_processed,
                 InvalidEncodingReason::InvalidUtf8 {
                     valid_up_to: utf8_error.valid_up_to(),
                     error_len: utf8_error.error_len(),
                 },
             )
         })?;
-        Self::validate_value(&value, CodecOperation::Read, prefix_size + byte_length)?;
-        Ok(Self(value))
+        Self::validate_value(&value, CodecOperation::Read, bytes_processed)?;
+        Ok((value, bytes_processed))
     }
 }
 
-/// Encoded as a String with max length of 32 767.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
-pub struct Identifier(pub String);
+impl TypeCodec for PrefixedString {
+    fn encode(&self, writer: &mut impl Write) -> Result<(), CodecError> {
+        Self::encode_value(&self.0, writer)
+    }
+
+    fn decode(reader: &mut impl Read) -> Result<Self, CodecError> {
+        Self::decode_value(reader).map(|(value, _)| Self(value))
+    }
+}
+
+/// A Minecraft resource identifier encoded as a protocol String.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Identifier(String);
 
 impl Identifier {
     pub const MAX_UTF16_CODE_UNITS: usize = PrefixedString::MAX_UTF16_CODE_UNITS;
     pub const MAX_BYTES: usize = PrefixedString::MAX_BYTES;
     pub const MAX_ENCODED_BYTES: usize = Self::MAX_BYTES + 3;
+
+    pub fn new(value: impl Into<String>) -> Result<Self, InvalidIdentifier> {
+        let value = value.into();
+        validate_identifier(&value)?;
+        Ok(Self(value))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn into_inner(self) -> String {
+        self.0
+    }
 }
 
 impl TypeCodec for Identifier {
@@ -243,8 +264,45 @@ impl TypeCodec for Identifier {
     }
 
     fn decode(reader: &mut impl Read) -> Result<Self, CodecError> {
-        PrefixedString::decode(reader)
-            .map(|value| Self(value.0))
-            .map_err(|error| error.with_context(CodecKind::Identifier))
+        let (value, bytes_processed) = PrefixedString::decode_value(reader)
+            .map_err(|error| error.with_context(CodecKind::Identifier))?;
+        Self::new(value).map_err(|_| {
+            CodecError::invalid_encoding(
+                CodecKind::Identifier,
+                bytes_processed,
+                InvalidEncodingReason::InvalidIdentifier,
+            )
+        })
     }
 }
+
+fn validate_identifier(value: &str) -> Result<(), InvalidIdentifier> {
+    let (namespace, path) = match value.split_once(':') {
+        Some((namespace, path)) => (namespace, path),
+        None => ("minecraft", value),
+    };
+    let namespace_is_valid = !namespace.is_empty()
+        && namespace.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"_.-".contains(&byte)
+        });
+    let path_is_valid = !path.is_empty()
+        && path.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"/._-".contains(&byte)
+        });
+    if namespace_is_valid && path_is_valid && !path.contains(':') {
+        Ok(())
+    } else {
+        Err(InvalidIdentifier)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InvalidIdentifier;
+
+impl fmt::Display for InvalidIdentifier {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("invalid Minecraft identifier")
+    }
+}
+
+impl std::error::Error for InvalidIdentifier {}

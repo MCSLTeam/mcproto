@@ -82,6 +82,7 @@ pub enum InvalidEncodingReason {
         valid_up_to: usize,
         error_len: Option<usize>,
     },
+    InvalidIdentifier,
     InvalidNbt,
     InvalidJson,
     InvalidTextComponentRootTag {
@@ -129,6 +130,7 @@ impl fmt::Display for InvalidEncodingReason {
                 formatter,
                 "incomplete UTF-8 sequence starting at byte {valid_up_to}"
             ),
+            Self::InvalidIdentifier => formatter.write_str("invalid Minecraft identifier"),
             Self::InvalidNbt => formatter.write_str("invalid NBT data"),
             Self::InvalidJson => formatter.write_str("invalid JSON data"),
             Self::InvalidTextComponentRootTag { tag } => write!(
