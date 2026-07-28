@@ -1,3 +1,9 @@
+//! Integration tests for codec error classification and byte-progress tracking.
+//!
+//! The fixtures inject short writes, interrupted operations, truncated input,
+//! and malformed encodings so the public error metadata can be checked at the
+//! point where each failure occurs.
+
 use std::io::{self, Read, Write};
 
 use mcproto_codec::{
@@ -7,6 +13,7 @@ use mcproto_codec::{
     varlong::{VarLongRead, VarLongWrite},
 };
 
+// Accepts exactly `remaining` bytes, then injects a persistent I/O failure.
 struct FailAfterWriter {
     remaining: usize,
 }
@@ -27,6 +34,7 @@ impl Write for FailAfterWriter {
     }
 }
 
+// Write failures must retain the codec, operation, and exact progress.
 #[test]
 fn varint_immediate_write_error_reports_zero() {
     let error = FailAfterWriter { remaining: 0 }
@@ -59,6 +67,7 @@ fn varlong_partial_write_error_reports_exact_progress() {
     assert_eq!(error.bytes_processed(), 7);
 }
 
+// Truncated reads are classified separately from other I/O errors.
 #[test]
 fn varint_truncated_read_reports_exact_progress() {
     let mut input = [0x80, 0x80].as_slice();
@@ -80,6 +89,7 @@ fn varlong_truncated_read_reports_exact_progress() {
     assert_eq!(error.bytes_processed(), 3);
 }
 
+// The size-returning VarInt APIs agree on the encoded length.
 #[test]
 fn varint_size_methods_report_encoded_size() {
     let mut encoded = Vec::new();
@@ -89,6 +99,7 @@ fn varint_size_methods_report_encoded_size() {
     assert_eq!(input.read_varint_with_size().unwrap(), (25565, 3));
 }
 
+// Malformed terminal bytes report both the reason and consumed byte count.
 #[test]
 fn varint_rejects_continuation_in_fifth_byte() {
     let mut input = [0xff, 0xff, 0xff, 0xff, 0x80].as_slice();
@@ -145,6 +156,7 @@ fn varlong_rejects_out_of_range_terminal_bits() {
     assert_eq!(error.bytes_processed(), 10);
 }
 
+// Produces one Interrupted error before delegating all subsequent reads.
 struct InterruptedReader<'a> {
     input: &'a [u8],
     interrupted: bool,
@@ -161,6 +173,7 @@ impl Read for InterruptedReader<'_> {
     }
 }
 
+// Counted reads must retry transient interruptions without changing progress.
 #[test]
 fn counted_read_retries_interrupted_operations() {
     let mut reader = InterruptedReader {
@@ -173,6 +186,7 @@ fn counted_read_retries_interrupted_operations() {
     assert_eq!(output, [0x12, 0x34]);
 }
 
+// Produces one Interrupted error before accepting all subsequent writes.
 struct InterruptedWriter {
     output: Vec<u8>,
     interrupted: bool,
@@ -194,6 +208,7 @@ impl Write for InterruptedWriter {
     }
 }
 
+// Counted writes must retry transient interruptions without duplicating data.
 #[test]
 fn counted_write_retries_interrupted_operations() {
     let mut writer = InterruptedWriter {
@@ -205,6 +220,7 @@ fn counted_write_retries_interrupted_operations() {
     assert_eq!(writer.output, [0x12, 0x34]);
 }
 
+// Simulates a writer that cannot make progress without returning an error.
 struct ZeroWriter;
 
 impl Write for ZeroWriter {
@@ -217,6 +233,7 @@ impl Write for ZeroWriter {
     }
 }
 
+// A zero-length write becomes WriteZero at the caller-provided base offset.
 #[test]
 fn counted_write_maps_zero_to_write_zero_at_the_base_offset() {
     let error = write_all_counted(&mut ZeroWriter, &[1], CodecKind::Byte, 7).unwrap_err();
