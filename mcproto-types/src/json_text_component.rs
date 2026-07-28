@@ -5,6 +5,7 @@ use mcproto_codec::{
     io::{read_exact_counted, write_all_counted},
     varint::{VarIntRead, VarIntWrite},
 };
+use serde::{Deserialize, Serialize};
 
 use crate::{TypeCodec, component::JsonComponent};
 
@@ -31,7 +32,9 @@ impl JsonTextComponent {
     }
 
     pub fn from_json_str(value: &str) -> Result<Self, serde_json::Error> {
-        serde_json::from_str(value).map(Self)
+        let component = deserialize_json(value)?;
+        validate_component(&component).map_err(json_validation_error)?;
+        Ok(Self(component))
     }
 
     fn validate_length(
@@ -101,10 +104,14 @@ impl From<&str> for JsonTextComponent {
 
 impl TypeCodec for JsonTextComponent {
     fn encode(&self, writer: &mut impl Write) -> Result<(), CodecError> {
-        self.0
-            .validate_depth(Self::MAX_COMPONENT_DEPTH)
+        validate_component(&self.0)
             .map_err(|source| Self::invalid_json(CodecOperation::Write, 0, source))?;
-        let json = serde_json::to_string(&self.0)
+        let mut bytes = Vec::new();
+        let mut serializer = serde_json::Serializer::new(&mut bytes);
+        self.0
+            .serialize(serde_stacker::Serializer::new(&mut serializer))
+            .map_err(|source| Self::invalid_json(CodecOperation::Write, 0, source))?;
+        let json = String::from_utf8(bytes)
             .map_err(|source| Self::invalid_json(CodecOperation::Write, 0, source))?;
         Self::validate_length(
             &json,
@@ -169,11 +176,81 @@ impl TypeCodec for JsonTextComponent {
             bytes_processed,
         )?;
 
-        let component: JsonComponent = serde_json::from_str(&json)
+        let component = deserialize_json(&json)
             .map_err(|source| Self::invalid_json(CodecOperation::Read, bytes_processed, source))?;
-        component
-            .validate_depth(Self::MAX_COMPONENT_DEPTH)
+        validate_component(&component)
             .map_err(|source| Self::invalid_json(CodecOperation::Read, bytes_processed, source))?;
         Ok(Self(component))
     }
+}
+
+fn deserialize_json(value: &str) -> Result<JsonComponent, serde_json::Error> {
+    validate_json_syntax_depth(value, JsonTextComponent::MAX_COMPONENT_DEPTH * 2 + 8)
+        .map_err(json_validation_error)?;
+    let mut deserializer = serde_json::Deserializer::from_str(value);
+    deserializer.disable_recursion_limit();
+    let component =
+        JsonComponent::deserialize(serde_stacker::Deserializer::new(&mut deserializer))?;
+    deserializer.end()?;
+    Ok(component)
+}
+
+fn validate_json_syntax_depth(value: &str, max_depth: usize) -> Result<(), JsonSyntaxDepthError> {
+    let mut depth = 0_usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    for byte in value.bytes() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match byte {
+            b'"' => in_string = true,
+            b'{' | b'[' => {
+                depth += 1;
+                if depth > max_depth {
+                    return Err(JsonSyntaxDepthError { max_depth });
+                }
+            }
+            b'}' | b']' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+#[derive(Debug)]
+struct JsonSyntaxDepthError {
+    max_depth: usize,
+}
+
+impl std::fmt::Display for JsonSyntaxDepthError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "JSON nesting exceeds the {}-container limit",
+            self.max_depth
+        )
+    }
+}
+
+impl std::error::Error for JsonSyntaxDepthError {}
+
+fn validate_component(
+    component: &JsonComponent,
+) -> Result<(), crate::component::ComponentDepthError> {
+    component.validate_depth(JsonTextComponent::MAX_COMPONENT_DEPTH)?;
+    component.validate_dynamic_depth(JsonTextComponent::MAX_COMPONENT_DEPTH)
+}
+
+fn json_validation_error(
+    source: impl std::error::Error + Send + Sync + 'static,
+) -> serde_json::Error {
+    serde_json::Error::io(std::io::Error::new(std::io::ErrorKind::InvalidData, source))
 }

@@ -262,3 +262,38 @@ fn partial_compound_read_reports_exact_progress() {
     assert_eq!(error.operation(), CodecOperation::Read);
     assert_eq!(error.bytes_processed(), 5);
 }
+
+#[test]
+fn decode_rejects_nbt_above_the_byte_limit() {
+    let payload_length = TextComponent::MAX_DECODE_BYTES;
+    let mut encoded = Vec::with_capacity(payload_length + 9);
+    encoded.extend_from_slice(&[10, 7, 0, 1, b'x']);
+    encoded.extend_from_slice(&(payload_length as i32).to_be_bytes());
+    encoded.resize(payload_length + 9, 0);
+
+    let error = TextComponent::decode(&mut encoded.as_slice()).unwrap_err();
+    assert_eq!(
+        error.kind(),
+        CodecErrorKind::InvalidEncoding(InvalidEncodingReason::TooLong {
+            max_bytes: TextComponent::MAX_DECODE_BYTES,
+        })
+    );
+    assert_eq!(error.bytes_processed(), TextComponent::MAX_DECODE_BYTES);
+}
+
+#[test]
+fn decode_rejects_nbt_above_the_node_limit() {
+    let element_count = TextComponent::MAX_DECODE_NODES;
+    let mut encoded = Vec::with_capacity(element_count + 9);
+    encoded.extend_from_slice(&[10, 9, 0, 0, 1]);
+    encoded.extend_from_slice(&(element_count as i32).to_be_bytes());
+    encoded.resize(element_count + 9, 0);
+
+    let error = TextComponent::decode(&mut encoded.as_slice()).unwrap_err();
+    assert_eq!(
+        error.kind(),
+        CodecErrorKind::InvalidEncoding(InvalidEncodingReason::InvalidNbt)
+    );
+    assert_eq!(error.bytes_processed(), encoded.len() - 1);
+    assert!(error.source().is_some());
+}

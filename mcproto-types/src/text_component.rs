@@ -23,6 +23,8 @@ pub use fastnbt::Value as NbtValue;
 pub struct TextComponent(pub NbtComponent);
 
 impl TextComponent {
+    pub const MAX_DECODE_BYTES: usize = 2 * 1024 * 1024;
+    pub const MAX_DECODE_NODES: usize = 262_144;
     const MAX_COMPONENT_DEPTH: usize = 512;
 
     pub fn text(value: impl Into<String>) -> Self {
@@ -59,6 +61,9 @@ impl TypeCodec for TextComponent {
         self.0
             .validate_depth(Self::MAX_COMPONENT_DEPTH)
             .map_err(|source| invalid_nbt(CodecOperation::Write, 0, source))?;
+        self.0
+            .validate_dynamic_depth(Self::MAX_COMPONENT_DEPTH)
+            .map_err(|source| invalid_nbt(CodecOperation::Write, 0, source))?;
         let normalized = self.0.normalized_root_for_nbt();
         let value = fastnbt::to_value(&normalized)
             .map_err(|source| invalid_nbt(CodecOperation::Write, 0, source))?;
@@ -72,6 +77,9 @@ impl TypeCodec for TextComponent {
             .map_err(|source| invalid_nbt(CodecOperation::Read, bytes_processed, source))?;
         component
             .validate_depth(Self::MAX_COMPONENT_DEPTH)
+            .map_err(|source| invalid_nbt(CodecOperation::Read, bytes_processed, source))?;
+        component
+            .validate_dynamic_depth(Self::MAX_COMPONENT_DEPTH)
             .map_err(|source| invalid_nbt(CodecOperation::Read, bytes_processed, source))?;
         Ok(Self(component.normalized_root_for_nbt()))
     }
@@ -106,7 +114,7 @@ fn encode_root(value: &NbtValue, writer: &mut impl Write) -> Result<(), CodecErr
 }
 
 fn decode_root(reader: &mut impl Read) -> Result<(NbtValue, usize), CodecError> {
-    let mut reader = CountedReader::new(reader);
+    let mut reader = CountedReader::new(reader, TextComponent::MAX_DECODE_BYTES);
     let mut root_tag = [0_u8; 1];
     reader.read_exact(&mut root_tag).map_err(|source| {
         CodecError::from_read_error(CodecKind::TextComponent, reader.processed, source)
@@ -127,13 +135,23 @@ fn decode_root(reader: &mut impl Read) -> Result<(NbtValue, usize), CodecError> 
     let result = (|| {
         let mut parser = Parser::new(&mut prefixed);
         let first = parser.next().map_err(NbtTreeError::Parser)?;
-        parse_stream_value(&mut parser, first, 1)
+        let mut remaining_nodes = TextComponent::MAX_DECODE_NODES;
+        parse_stream_value(&mut parser, first, 1, &mut remaining_nodes)
     })();
 
     match result {
         Ok(value) => Ok((value, prefixed.inner.processed)),
         Err(error) => {
             let processed = prefixed.inner.processed;
+            if prefixed.inner.limit_exceeded {
+                return Err(CodecError::invalid_encoding(
+                    CodecKind::TextComponent,
+                    processed,
+                    InvalidEncodingReason::TooLong {
+                        max_bytes: TextComponent::MAX_DECODE_BYTES,
+                    },
+                ));
+            }
             match prefixed.inner.failure.take() {
                 Some(source) => Err(CodecError::from_read_error(
                     CodecKind::TextComponent,
@@ -150,7 +168,11 @@ fn parse_stream_value<R: Read>(
     parser: &mut Parser<R>,
     value: StreamValue,
     depth: usize,
+    remaining_nodes: &mut usize,
 ) -> Result<NbtValue, NbtTreeError> {
+    *remaining_nodes = remaining_nodes
+        .checked_sub(1)
+        .ok_or(NbtTreeError::TooManyNodes)?;
     if depth > TextComponent::MAX_COMPONENT_DEPTH {
         return Err(NbtTreeError::TooDeep);
     }
@@ -171,7 +193,12 @@ fn parse_stream_value<R: Read>(
             let mut values = Vec::with_capacity(length.min(1024));
             for _ in 0..length {
                 let value = parser.next().map_err(NbtTreeError::Parser)?;
-                values.push(parse_stream_value(parser, value, depth + 1)?);
+                values.push(parse_stream_value(
+                    parser,
+                    value,
+                    depth + 1,
+                    remaining_nodes,
+                )?);
             }
             if !matches!(parser.next(), Ok(StreamValue::ListEnd)) {
                 return Err(NbtTreeError::InvalidStructure);
@@ -188,7 +215,7 @@ fn parse_stream_value<R: Read>(
                 let name = stream_name(&value).ok_or(NbtTreeError::InvalidStructure)?;
                 values.insert(
                     name.to_owned(),
-                    parse_stream_value(parser, value, depth + 1)?,
+                    parse_stream_value(parser, value, depth + 1, remaining_nodes)?,
                 );
             }
             Ok(NbtValue::Compound(values))
@@ -220,6 +247,7 @@ enum NbtTreeError {
     Parser(fastnbt::stream::Error),
     InvalidStructure,
     TooDeep,
+    TooManyNodes,
 }
 
 impl fmt::Display for NbtTreeError {
@@ -228,6 +256,7 @@ impl fmt::Display for NbtTreeError {
             Self::Parser(source) => source.fmt(formatter),
             Self::InvalidStructure => formatter.write_str("invalid NBT tree structure"),
             Self::TooDeep => formatter.write_str("NBT tree is nested too deeply"),
+            Self::TooManyNodes => formatter.write_str("NBT tree contains too many nodes"),
         }
     }
 }
@@ -308,14 +337,18 @@ fn validate_nbt_string(
 struct CountedReader<'a, R: ?Sized> {
     inner: &'a mut R,
     processed: usize,
+    byte_limit: usize,
+    limit_exceeded: bool,
     failure: Option<io::Error>,
 }
 
 impl<'a, R: ?Sized> CountedReader<'a, R> {
-    fn new(inner: &'a mut R) -> Self {
+    fn new(inner: &'a mut R, byte_limit: usize) -> Self {
         Self {
             inner,
             processed: 0,
+            byte_limit,
+            limit_exceeded: false,
             failure: None,
         }
     }
@@ -326,7 +359,13 @@ impl<R: Read + ?Sized> Read for CountedReader<'_, R> {
         if buffer.is_empty() {
             return Ok(0);
         }
-        match self.inner.read(buffer) {
+        let remaining = self.byte_limit.saturating_sub(self.processed);
+        if remaining == 0 {
+            self.limit_exceeded = true;
+            return Err(io::Error::other("NBT byte limit exceeded"));
+        }
+        let buffer_len = buffer.len().min(remaining);
+        match self.inner.read(&mut buffer[..buffer_len]) {
             Ok(0) => {
                 let error = io::Error::new(io::ErrorKind::UnexpectedEof, "unexpected end of NBT");
                 self.failure = Some(error);

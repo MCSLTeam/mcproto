@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use mcproto_codec::error::{CodecErrorKind, CodecOperation, InvalidEncodingReason};
+use mcproto_codec::varint::VarIntWrite;
 use mcproto_types::{
     TypeCodec,
     component::{
@@ -330,6 +331,13 @@ fn nested_component<V>(depth: usize) -> Component<V> {
 
 #[test]
 fn component_depth_limit_is_checked_before_writing() {
+    let boundary = JsonTextComponent(nested_component(512));
+    let mut encoded = Vec::new();
+    boundary.encode(&mut encoded).unwrap();
+    let mut input = encoded.as_slice();
+    assert_eq!(JsonTextComponent::decode(&mut input).unwrap(), boundary);
+    assert!(input.is_empty());
+
     let mut json_output = Vec::new();
     let error = JsonTextComponent(nested_component(513))
         .encode(&mut json_output)
@@ -351,4 +359,88 @@ fn component_depth_limit_is_checked_before_writing() {
     );
     assert_eq!(error.operation(), CodecOperation::Write);
     assert!(nbt_output.is_empty());
+}
+
+fn nested_json_value(depth: usize) -> JsonValue {
+    let mut value = JsonValue::Null;
+    for _ in 0..depth {
+        value = JsonValue::Array(vec![value]);
+    }
+    value
+}
+
+fn component_with_custom_payload<V>(payload: V) -> Component<V> {
+    let mut object = ComponentObject::text("dynamic");
+    object.style.click_event = Some(ClickEvent::Custom {
+        id: resource("example:callback"),
+        payload: Some(payload),
+    });
+    Component::Object(Box::new(object))
+}
+
+#[test]
+fn deeply_nested_dynamic_payloads_are_rejected_before_serialization() {
+    let mut json_output = Vec::new();
+    let error = JsonTextComponent(component_with_custom_payload(nested_json_value(513)))
+        .encode(&mut json_output)
+        .unwrap_err();
+    assert_eq!(
+        error.kind(),
+        CodecErrorKind::InvalidEncoding(InvalidEncodingReason::InvalidJson)
+    );
+    assert_eq!(error.operation(), CodecOperation::Write);
+    assert!(json_output.is_empty());
+
+    let mut nbt_value = NbtValue::Byte(0);
+    for _ in 0..513 {
+        nbt_value = NbtValue::List(vec![nbt_value]);
+    }
+    let mut nbt_output = Vec::new();
+    let error = TextComponent(component_with_custom_payload(nbt_value))
+        .encode(&mut nbt_output)
+        .unwrap_err();
+    assert_eq!(
+        error.kind(),
+        CodecErrorKind::InvalidEncoding(InvalidEncodingReason::InvalidNbt)
+    );
+    assert_eq!(error.operation(), CodecOperation::Write);
+    assert!(nbt_output.is_empty());
+}
+
+#[test]
+fn deeply_nested_json_payload_is_rejected_during_decode_without_stack_overflow() {
+    let arrays = 513;
+    let json = format!(
+        "{{\"text\":\"dynamic\",\"click_event\":{{\"action\":\"custom\",\"id\":\"example:callback\",\"payload\":{}null{}}}}}",
+        "[".repeat(arrays),
+        "]".repeat(arrays)
+    );
+    let mut encoded = Vec::new();
+    encoded.write_varint(json.len() as i32).unwrap();
+    encoded.extend_from_slice(json.as_bytes());
+
+    let error = JsonTextComponent::decode(&mut encoded.as_slice()).unwrap_err();
+    assert_eq!(
+        error.kind(),
+        CodecErrorKind::InvalidEncoding(InvalidEncodingReason::InvalidJson)
+    );
+    assert_eq!(error.operation(), CodecOperation::Read);
+    assert_eq!(error.bytes_processed(), encoded.len());
+}
+
+#[test]
+fn extreme_json_depth_is_rejected_before_deserialization() {
+    let arrays = 2_048;
+    let json = format!("{}null{}", "[".repeat(arrays), "]".repeat(arrays));
+    let mut encoded = Vec::new();
+    encoded.write_varint(json.len() as i32).unwrap();
+    encoded.extend_from_slice(json.as_bytes());
+
+    let error = JsonTextComponent::decode(&mut encoded.as_slice()).unwrap_err();
+    assert_eq!(
+        error.kind(),
+        CodecErrorKind::InvalidEncoding(InvalidEncodingReason::InvalidJson)
+    );
+    assert_eq!(error.operation(), CodecOperation::Read);
+    assert_eq!(error.bytes_processed(), encoded.len());
 }

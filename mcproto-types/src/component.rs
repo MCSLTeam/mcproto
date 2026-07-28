@@ -83,6 +83,117 @@ impl<V> Component<V> {
     }
 }
 
+impl Component<serde_json::Value> {
+    pub(crate) fn validate_dynamic_depth(
+        &self,
+        max_depth: usize,
+    ) -> Result<(), ComponentDepthError> {
+        validate_dynamic_values(self, |root| {
+            let mut pending = vec![(root, 1_usize)];
+            while let Some((value, depth)) = pending.pop() {
+                if depth > max_depth {
+                    return Err(ComponentDepthError { max_depth });
+                }
+                let next = depth + 1;
+                match value {
+                    serde_json::Value::Array(values) => {
+                        pending.extend(values.iter().map(|value| (value, next)));
+                    }
+                    serde_json::Value::Object(values) => {
+                        pending.extend(values.values().map(|value| (value, next)));
+                    }
+                    _ => {}
+                }
+            }
+            Ok(())
+        })
+    }
+}
+
+impl Component<NbtValue> {
+    pub(crate) fn validate_dynamic_depth(
+        &self,
+        max_depth: usize,
+    ) -> Result<(), ComponentDepthError> {
+        validate_dynamic_values(self, |root| {
+            let mut pending = vec![(root, 1_usize)];
+            while let Some((value, depth)) = pending.pop() {
+                if depth > max_depth {
+                    return Err(ComponentDepthError { max_depth });
+                }
+                let next = depth + 1;
+                match value {
+                    NbtValue::List(values) => {
+                        pending.extend(values.iter().map(|value| (value, next)));
+                    }
+                    NbtValue::Compound(values) => {
+                        pending.extend(values.values().map(|value| (value, next)));
+                    }
+                    _ => {}
+                }
+            }
+            Ok(())
+        })
+    }
+}
+
+fn validate_dynamic_values<V, E>(
+    root: &Component<V>,
+    mut validate: impl FnMut(&V) -> Result<(), E>,
+) -> Result<(), E> {
+    let mut pending = vec![root];
+    while let Some(component) = pending.pop() {
+        match component {
+            Component::Text(_) => {}
+            Component::Sequence(sequence) => pending.extend(sequence.iter()),
+            Component::Object(object) => {
+                pending.extend(&object.extra);
+                match &object.content {
+                    Content::Translatable { with, .. } => pending.extend(with),
+                    Content::Selector { separator, .. } | Content::Nbt { separator, .. } => {
+                        if let Some(separator) = separator {
+                            pending.push(separator);
+                        }
+                    }
+                    _ => {}
+                }
+                if let Some(click) = &object.style.click_event {
+                    match click {
+                        ClickEvent::ShowDialog {
+                            dialog: DialogReference::Inline(values),
+                        } => {
+                            for value in values.values() {
+                                validate(value)?;
+                            }
+                        }
+                        ClickEvent::Custom {
+                            payload: Some(value),
+                            ..
+                        } => validate(value)?,
+                        _ => {}
+                    }
+                }
+                if let Some(hover) = &object.style.hover_event {
+                    match hover {
+                        HoverEvent::ShowText { value } => pending.push(value),
+                        HoverEvent::ShowItem { components, .. } => {
+                            for value in components.values() {
+                                validate(value)?;
+                            }
+                        }
+                        HoverEvent::ShowEntity { name, .. } => {
+                            if let Some(name) = name {
+                                pending.push(name);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 impl<V> Default for Component<V> {
     fn default() -> Self {
         Self::text("")
