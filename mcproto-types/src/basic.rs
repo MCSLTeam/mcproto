@@ -1,3 +1,8 @@
+//! Basic Minecraft protocol types and their wire encodings.
+//!
+//! This module includes primitive numeric values, booleans, length-prefixed
+//! strings, and resource identifiers.
+
 use crate::TypeCodec;
 use mcproto_codec::{
     error::{CodecError, CodecKind, CodecOperation, InvalidEncodingReason},

@@ -1,3 +1,8 @@
+//! Minecraft protocol types and their wire-codec interface.
+//!
+//! The crate models protocol values and provides their encoding and decoding
+//! through [`TypeCodec`].
+
 pub mod basic;
 pub mod component;
 pub mod json_text_component;

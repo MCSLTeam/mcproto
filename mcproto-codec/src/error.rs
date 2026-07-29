@@ -1,3 +1,8 @@
+//! Errors reported by Minecraft protocol codecs.
+//!
+//! This module provides structured context for failures while reading and
+//! writing the protocol values implemented by `mcproto-codec`.
+
 use std::{error::Error, fmt, io};
 
 type BoxedError = Box<dyn Error + Send + Sync + 'static>;

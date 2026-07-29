@@ -1,3 +1,5 @@
+//! Integration tests for VarInt-prefixed Minecraft protocol strings.
+
 use std::io::{self, Write};
 
 use mcproto_codec::{

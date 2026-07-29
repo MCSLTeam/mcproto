@@ -1,3 +1,8 @@
+//! Data model for Minecraft text components.
+//!
+//! The types in this module represent the component schema shared by JSON and
+//! NBT text component encodings.
+
 use std::{collections::BTreeMap, fmt, num::NonZeroI32};
 
 use fastnbt::Value as NbtValue;

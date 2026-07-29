@@ -1,3 +1,8 @@
+//! JSON-backed Minecraft text components encoded as protocol strings.
+//!
+//! This module wraps the shared component model for the JSON representation
+//! used by the Minecraft protocol.
+
 use std::io::{Read, Write};
 
 use mcproto_codec::{

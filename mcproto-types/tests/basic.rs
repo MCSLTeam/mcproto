@@ -1,3 +1,5 @@
+//! Integration tests for basic Minecraft protocol types.
+
 use std::io::{self, Read, Write};
 
 use mcproto_codec::error::{

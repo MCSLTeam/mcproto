@@ -1,3 +1,5 @@
+//! Integration tests for NBT-encoded Minecraft text components.
+
 use std::{
     error::Error as _,
     io::{self, Read, Write},

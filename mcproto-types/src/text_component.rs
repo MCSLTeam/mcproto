@@ -1,3 +1,8 @@
+//! NBT-backed Minecraft text components.
+//!
+//! This module wraps the shared component model for the NBT representation
+//! used by the Minecraft protocol.
+
 use std::{
     collections::HashMap,
     error::Error,

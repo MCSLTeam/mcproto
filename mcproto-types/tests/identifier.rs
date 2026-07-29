@@ -1,3 +1,5 @@
+//! Integration tests for Minecraft resource identifiers.
+
 use mcproto_codec::error::{CodecErrorKind, CodecKind, CodecOperation, InvalidEncodingReason};
 use mcproto_types::{TypeCodec, basic::Identifier};
 

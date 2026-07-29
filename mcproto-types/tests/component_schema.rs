@@ -1,3 +1,5 @@
+//! Integration tests for the Minecraft text component schema.
+
 use std::collections::{BTreeMap, HashMap};
 
 use mcproto_codec::error::{CodecErrorKind, CodecOperation, InvalidEncodingReason};
