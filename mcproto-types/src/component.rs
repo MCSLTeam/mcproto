@@ -29,18 +29,26 @@ pub enum Component<V> {
     Object(Box<ComponentObject<V>>),
 }
 
+/// A text component whose dynamic payloads use NBT values.
 pub type NbtComponent = Component<NbtValue>;
+/// A text component whose dynamic payloads use JSON values.
 pub type JsonComponent = Component<serde_json::Value>;
 
 impl<V> Component<V> {
+    /// Creates the string shorthand for a plain-text component.
     pub fn text(value: impl Into<String>) -> Self {
         Self::Text(value.into())
     }
 
+    /// Creates a full component object with the supplied content.
+    ///
+    /// The new object has an empty [`Style`] and no extra components.
     pub fn object(content: Content<V>) -> Self {
         Self::Object(Box::new(ComponentObject::new(content)))
     }
 
+    /// Creates a non-empty component sequence from its first element and the
+    /// remaining elements.
     pub fn sequence(first: Component<V>, rest: impl IntoIterator<Item = Component<V>>) -> Self {
         Self::Sequence(ComponentSequence::new(first, rest))
     }
@@ -292,6 +300,7 @@ where
     }
 }
 
+/// A non-empty list shorthand for a sequence of text components.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ComponentSequence<V> {
     first: Box<Component<V>>,
@@ -299,6 +308,8 @@ pub struct ComponentSequence<V> {
 }
 
 impl<V> ComponentSequence<V> {
+    /// Creates a sequence from its required first component and any remaining
+    /// components.
     pub fn new(first: Component<V>, rest: impl IntoIterator<Item = Component<V>>) -> Self {
         Self {
             first: Box::new(first),
@@ -306,14 +317,17 @@ impl<V> ComponentSequence<V> {
         }
     }
 
+    /// Returns the first component in the sequence.
     pub fn first(&self) -> &Component<V> {
         &self.first
     }
 
+    /// Returns all components after the first one.
     pub fn rest(&self) -> &[Component<V>] {
         &self.rest
     }
 
+    /// Iterates over every component in order, including the first one.
     pub fn iter(&self) -> impl Iterator<Item = &Component<V>> {
         std::iter::once(self.first.as_ref()).chain(&self.rest)
     }
@@ -345,6 +359,7 @@ impl<V: Serialize> Serialize for ComponentSequence<V> {
     }
 }
 
+/// Error returned when an empty list is converted into a [`ComponentSequence`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EmptyComponentSequence;
 
@@ -373,14 +388,20 @@ impl fmt::Display for ComponentDepthError {
 
 impl std::error::Error for ComponentDepthError {}
 
+/// A full text component object with content, style, and appended components.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ComponentObject<V> {
+    /// The content rendered by this component.
     pub content: Content<V>,
+    /// Optional formatting and interaction behavior.
     pub style: Style<V>,
+    /// Components appended after this component.
     pub extra: Vec<Component<V>>,
 }
 
 impl<V> ComponentObject<V> {
+    /// Creates an object with the supplied content, an empty style, and no
+    /// extra components.
     pub fn new(content: Content<V>) -> Self {
         Self {
             content,
@@ -389,135 +410,209 @@ impl<V> ComponentObject<V> {
         }
     }
 
+    /// Creates an object containing literal text.
     pub fn text(value: impl Into<String>) -> Self {
         Self::new(Content::Text { text: value.into() })
     }
 }
 
+/// The mutually exclusive content payload of a [`ComponentObject`].
 #[derive(Debug, Clone, PartialEq)]
 pub enum Content<V> {
+    /// Literal text.
     Text {
+        /// The text to display.
         text: String,
     },
+    /// Text looked up from a translation key.
     Translatable {
+        /// The translation key.
         translate: String,
+        /// Text used when the translation key is unavailable.
         fallback: Option<String>,
+        /// Components substituted into the translated text.
         with: Vec<Component<V>>,
     },
+    /// A value from a scoreboard objective.
     Score {
+        /// The scoreboard holder and objective to query.
         score: Score,
     },
+    /// The names selected by an entity selector.
     Selector {
+        /// The entity selector expression.
         selector: String,
+        /// Component placed between selected names.
         separator: Option<Box<Component<V>>>,
     },
+    /// The localized name of a client key binding.
     Keybind {
+        /// The key-binding identifier.
         keybind: String,
     },
+    /// Values read from an NBT path.
     Nbt {
+        /// The NBT path to evaluate.
         nbt: String,
+        /// The entity, block, or storage source to query.
         target: NbtTarget,
+        /// How extracted values are rendered.
         display: NbtDisplay,
+        /// Component placed between multiple extracted values.
         separator: Option<Box<Component<V>>>,
     },
+    /// A rendered object such as an atlas sprite or player head.
     Object {
+        /// The object-specific rendering data.
         object: ObjectContent,
+        /// Fallback text used when the object cannot be rendered.
+        ///
         /// Added by Java Edition 26.1.
         fallback: Option<String>,
     },
 }
 
+/// A scoreboard holder and objective referenced by score content.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Score {
+    /// The score holder name or selector.
     pub name: String,
+    /// The scoreboard objective name.
     pub objective: String,
 }
 
+/// The source queried by an NBT component.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NbtTarget {
+    /// An entity selected by the contained selector.
     Entity(String),
+    /// A block at the contained position expression.
     Block(String),
+    /// A command storage entry identified by its resource location.
     Storage(ResourceLocation),
 }
 
+/// Controls how values extracted from NBT are rendered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum NbtDisplay {
+    /// Uses the default styled representation.
     #[default]
     Styled,
+    /// Displays the extracted value as plain text.
     Plain,
+    /// Interprets the extracted value as a serialized text component.
     Interpret,
 }
 
+/// The object rendered by object content.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ObjectContent {
+    /// A sprite from a texture atlas.
     Atlas {
+        /// The atlas containing the sprite, or the protocol default.
         atlas: Option<ResourceLocation>,
+        /// The sprite to render.
         sprite: ResourceLocation,
     },
+    /// A player head derived from profile data.
     Player {
+        /// The player name or complete profile.
         player: PlayerProfile,
+        /// Whether to render the player's hat layer.
         hat: Option<bool>,
     },
 }
 
+/// The shorthand or full representation of a player profile.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum PlayerProfile {
+    /// A profile resolved from a player name.
     Name(PlayerName),
+    /// Explicit profile data.
     Profile(Profile),
 }
 
+/// Player profile data used to render a player object.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Profile {
+    /// The player's validated account name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<PlayerName>,
+    /// The player's UUID.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<Uuid>,
+    /// Signed or unsigned profile properties.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub properties: Vec<ProfileProperty>,
+    /// The player's skin texture resource.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub texture: Option<ResourceLocation>,
+    /// The player's cape texture resource.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cape: Option<ResourceLocation>,
+    /// The player's elytra texture resource.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub elytra: Option<ResourceLocation>,
+    /// The geometry model used for the player skin.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<PlayerModel>,
 }
 
+/// A property attached to a player profile.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProfileProperty {
+    /// The kind of profile property.
     pub name: ProfilePropertyName,
+    /// The encoded property value.
     pub value: String,
+    /// The optional signature authenticating the value.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signature: Option<String>,
 }
 
+/// A supported player profile property name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProfilePropertyName {
+    /// Player skin and related texture data.
     Textures,
 }
 
+/// The geometry used to render a player skin.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PlayerModel {
+    /// The standard model with wide arms.
     Wide,
+    /// The slim model with narrow arms.
     Slim,
 }
 
+/// Optional formatting and interaction properties for a component.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Style<V> {
+    /// The text color.
     pub color: Option<TextColor>,
+    /// The font resource used to render text.
     pub font: Option<ResourceLocation>,
+    /// Whether text is rendered in bold.
     pub bold: Option<bool>,
+    /// Whether text is rendered in italics.
     pub italic: Option<bool>,
+    /// Whether text is underlined.
     pub underlined: Option<bool>,
+    /// Whether text has a strikethrough line.
     pub strikethrough: Option<bool>,
+    /// Whether text characters are continuously obfuscated.
     pub obfuscated: Option<bool>,
+    /// The text shadow color.
     pub shadow_color: Option<ShadowColor>,
+    /// Text inserted into chat when the component is shift-clicked.
     pub insertion: Option<String>,
+    /// The action performed when the component is clicked.
     pub click_event: Option<ClickEvent<V>>,
+    /// The content shown when the component is hovered.
     pub hover_event: Option<HoverEvent<V>>,
 }
 
@@ -555,6 +650,7 @@ impl<V> Style<V> {
     }
 }
 
+/// An action performed when a styled component is clicked.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(
     tag = "action",
@@ -562,44 +658,65 @@ impl<V> Style<V> {
     bound(serialize = "V: Serialize")
 )]
 pub enum ClickEvent<V> {
+    /// Opens an HTTP or HTTPS URL.
     OpenUrl {
+        /// The URL to open.
         url: HttpUrl,
     },
+    /// Opens a local file path on the client.
     OpenFile {
+        /// The file path to open.
         path: String,
     },
+    /// Runs a command.
     RunCommand {
+        /// The command to run.
         command: CommandString,
     },
+    /// Places a command into the client's chat input.
     SuggestCommand {
+        /// The command to suggest.
         command: CommandString,
     },
+    /// Changes the current book page.
     ChangePage {
+        /// The one-based page number.
         page: PositiveI32,
     },
+    /// Copies text to the system clipboard.
     CopyToClipboard {
+        /// The text to copy.
         value: String,
     },
+    /// Opens a dialog.
     ShowDialog {
+        /// The dialog identifier or inline definition.
         dialog: DialogReference<V>,
     },
+    /// Performs a custom action identified by a resource location.
     Custom {
+        /// The custom action identifier.
         id: ResourceLocation,
+        /// An optional wire-format-specific action payload.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         payload: Option<V>,
     },
 }
 
+/// A reference to a registered dialog or an inline dialog definition.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(
     untagged,
     bound(serialize = "V: Serialize", deserialize = "V: Deserialize<'de>")
 )]
 pub enum DialogReference<V> {
+    /// The resource location of a registered dialog.
     Id(ResourceLocation),
+    /// An inline dialog represented by wire-format-specific values.
     Inline(BTreeMap<String, V>),
 }
 
+/// Content shown when a styled component is hovered.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(
     tag = "action",
@@ -607,20 +724,30 @@ pub enum DialogReference<V> {
     bound(serialize = "V: Serialize")
 )]
 pub enum HoverEvent<V> {
+    /// Shows another text component.
     ShowText {
+        /// The component displayed in the tooltip.
         value: Box<Component<V>>,
     },
+    /// Shows an item stack.
     ShowItem {
+        /// The item type.
         id: ResourceLocation,
+        /// The optional stack size.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         count: Option<i32>,
+        /// Item data components keyed by resource location.
         #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
         components: BTreeMap<ResourceLocation, V>,
     },
+    /// Shows entity information.
     ShowEntity {
+        /// The optional entity name displayed in the tooltip.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         name: Option<Box<Component<V>>>,
+        /// The entity type.
         id: ResourceLocation,
+        /// The entity UUID.
         uuid: Uuid,
     },
 }
@@ -770,16 +897,25 @@ where
     }
 }
 
+/// A validated Minecraft resource location.
+///
+/// Namespaces permit lowercase ASCII letters, digits, `_`, `.`, and `-`;
+/// paths additionally permit `/`. The namespace may be omitted on input.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ResourceLocation(String);
 
 impl ResourceLocation {
+    /// Validates and stores a resource location.
+    ///
+    /// Returns [`InvalidResourceLocation`] when the namespace or path contains
+    /// unsupported characters or is empty.
     pub fn new(value: impl Into<String>) -> Result<Self, InvalidResourceLocation> {
         let value = value.into();
         validate_resource_location(&value)?;
         Ok(Self(value))
     }
 
+    /// Returns the resource location exactly as it was supplied.
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -809,6 +945,7 @@ impl<'de> Deserialize<'de> for ResourceLocation {
     }
 }
 
+/// Error returned when a string is not a valid [`ResourceLocation`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InvalidResourceLocation;
 
@@ -840,10 +977,12 @@ fn validate_resource_location(value: &str) -> Result<(), InvalidResourceLocation
     }
 }
 
+/// A validated absolute HTTP or HTTPS URL used by an `open_url` click event.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct HttpUrl(String);
 
 impl HttpUrl {
+    /// Validates and stores an absolute HTTP or HTTPS URL with a host.
     pub fn new(value: impl Into<String>) -> Result<Self, InvalidHttpUrl> {
         let value = value.into();
         let parsed = url::Url::parse(&value).map_err(|_| InvalidHttpUrl)?;
@@ -854,6 +993,7 @@ impl HttpUrl {
         }
     }
 
+    /// Returns the original URL string.
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -877,6 +1017,7 @@ impl<'de> Deserialize<'de> for HttpUrl {
     }
 }
 
+/// Error returned when an `open_url` value is not an absolute HTTP or HTTPS URL.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct InvalidHttpUrl;
 
@@ -888,10 +1029,15 @@ impl fmt::Display for InvalidHttpUrl {
 
 impl std::error::Error for InvalidHttpUrl {}
 
+/// A command string validated for use in a text component click event.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CommandString(String);
 
 impl CommandString {
+    /// Validates and stores a command string.
+    ///
+    /// Minecraft control characters, DEL, and the legacy section sign are
+    /// rejected.
     pub fn new(value: impl Into<String>) -> Result<Self, InvalidCommandString> {
         let value = value.into();
         if value
@@ -904,6 +1050,7 @@ impl CommandString {
         }
     }
 
+    /// Returns the validated command string.
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -927,6 +1074,7 @@ impl<'de> Deserialize<'de> for CommandString {
     }
 }
 
+/// Error returned when a command contains a character forbidden by Minecraft.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct InvalidCommandString;
 
@@ -938,10 +1086,13 @@ impl fmt::Display for InvalidCommandString {
 
 impl std::error::Error for InvalidCommandString {}
 
+/// A validated Java Edition player name.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PlayerName(String);
 
 impl PlayerName {
+    /// Validates and stores a player name containing 1 to 16 ASCII letters,
+    /// digits, or underscores.
     pub fn new(value: impl Into<String>) -> Result<Self, InvalidPlayerName> {
         let value = value.into();
         if !value.is_empty()
@@ -956,6 +1107,7 @@ impl PlayerName {
         }
     }
 
+    /// Returns the validated player name.
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -979,6 +1131,7 @@ impl<'de> Deserialize<'de> for PlayerName {
     }
 }
 
+/// Error returned when a string is not a valid [`PlayerName`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct InvalidPlayerName;
 
@@ -990,17 +1143,22 @@ impl fmt::Display for InvalidPlayerName {
 
 impl std::error::Error for InvalidPlayerName {}
 
+/// A strictly positive signed 32-bit integer.
+///
+/// Text components use this type for one-based book page numbers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[serde(transparent)]
 pub struct PositiveI32(NonZeroI32);
 
 impl PositiveI32 {
+    /// Creates a positive integer, returning `None` for zero or negative input.
     pub fn new(value: i32) -> Option<Self> {
         NonZeroI32::new(value)
             .filter(|value| value.get() > 0)
             .map(Self)
     }
 
+    /// Returns the contained positive integer.
     pub fn get(self) -> i32 {
         self.0.get()
     }
@@ -1016,18 +1174,22 @@ impl<'de> Deserialize<'de> for PositiveI32 {
     }
 }
 
+/// A 128-bit universally unique identifier used by component profile data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Uuid([u8; 16]);
 
 impl Uuid {
+    /// Creates a UUID from its 16 bytes in network order.
     pub fn from_bytes(bytes: [u8; 16]) -> Self {
         Self(bytes)
     }
 
+    /// Returns the UUID as 16 bytes in network order.
     pub fn into_bytes(self) -> [u8; 16] {
         self.0
     }
 
+    /// Parses a compact or hyphenated hexadecimal UUID string.
     pub fn parse(value: &str) -> Result<Self, InvalidUuid> {
         let mut bytes = [0_u8; 16];
         let mut digits = value.bytes().filter(|byte| *byte != b'-');
@@ -1146,6 +1308,7 @@ fn hex(value: u8) -> Result<u8, InvalidUuid> {
     }
 }
 
+/// Error returned when a UUID representation is malformed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct InvalidUuid;
 
@@ -1157,13 +1320,17 @@ impl fmt::Display for InvalidUuid {
 
 impl std::error::Error for InvalidUuid {}
 
+/// A named Minecraft color or an explicit 24-bit RGB color.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TextColor {
+    /// One of Minecraft's predefined named colors.
     Named(NamedColor),
+    /// An explicit red, green, and blue color.
     Rgb(RgbColor),
 }
 
 impl TextColor {
+    /// Creates an RGB text color from a 24-bit integer.
     pub const fn rgb(value: u32) -> Result<Self, InvalidRgbColor> {
         match RgbColor::new(value) {
             Ok(value) => Ok(Self::Rgb(value)),
@@ -1172,12 +1339,15 @@ impl TextColor {
     }
 }
 
+/// A 24-bit red, green, and blue color.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RgbColor(u32);
 
 impl RgbColor {
+    /// The largest value that fits in an RGB color.
     pub const MAX: u32 = 0x00ff_ffff;
 
+    /// Creates a color from a 24-bit `0xRRGGBB` integer.
     pub const fn new(value: u32) -> Result<Self, InvalidRgbColor> {
         if value <= Self::MAX {
             Ok(Self(value))
@@ -1186,14 +1356,17 @@ impl RgbColor {
         }
     }
 
+    /// Creates a color from its red, green, and blue channels.
     pub const fn from_channels(red: u8, green: u8, blue: u8) -> Self {
         Self(((red as u32) << 16) | ((green as u32) << 8) | blue as u32)
     }
 
+    /// Returns the color as a 24-bit `0xRRGGBB` integer.
     pub const fn value(self) -> u32 {
         self.0
     }
 
+    /// Returns the red, green, and blue channels in that order.
     pub const fn channels(self) -> [u8; 3] {
         [(self.0 >> 16) as u8, (self.0 >> 8) as u8, self.0 as u8]
     }
@@ -1205,6 +1378,7 @@ impl From<RgbColor> for TextColor {
     }
 }
 
+/// Error returned when an RGB value does not fit in 24 bits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct InvalidRgbColor;
 
@@ -1216,24 +1390,41 @@ impl fmt::Display for InvalidRgbColor {
 
 impl std::error::Error for InvalidRgbColor {}
 
+/// A predefined Minecraft text color.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NamedColor {
+    /// Black (`#000000`).
     Black,
+    /// Dark blue (`#0000AA`).
     DarkBlue,
+    /// Dark green (`#00AA00`).
     DarkGreen,
+    /// Dark aqua (`#00AAAA`).
     DarkAqua,
+    /// Dark red (`#AA0000`).
     DarkRed,
+    /// Dark purple (`#AA00AA`).
     DarkPurple,
+    /// Gold (`#FFAA00`).
     Gold,
+    /// Gray (`#AAAAAA`).
     Gray,
+    /// Dark gray (`#555555`).
     DarkGray,
+    /// Blue (`#5555FF`).
     Blue,
+    /// Green (`#55FF55`).
     Green,
+    /// Aqua (`#55FFFF`).
     Aqua,
+    /// Red (`#FF5555`).
     Red,
+    /// Light purple (`#FF55FF`).
     LightPurple,
+    /// Yellow (`#FFFF55`).
     Yellow,
+    /// White (`#FFFFFF`).
     White,
 }
 
@@ -1272,15 +1463,18 @@ impl<'de> Deserialize<'de> for TextColor {
     }
 }
 
+/// A text shadow color stored as a packed 32-bit ARGB value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[serde(transparent)]
 pub struct ShadowColor(i32);
 
 impl ShadowColor {
+    /// Creates a shadow color from a packed ARGB value.
     pub fn from_argb(argb: i32) -> Self {
         Self(argb)
     }
 
+    /// Returns the packed ARGB value.
     pub fn argb(self) -> i32 {
         self.0
     }
@@ -1706,12 +1900,19 @@ fn select_nbt_target<V>(raw: &RawComponent<V>) -> Option<NbtTarget> {
     }
 }
 
+/// Describes why a serialized component object does not match the component
+/// schema.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InvalidComponentObject {
+    /// No recognized content field is present.
     MissingContent,
+    /// NBT content does not identify an entity, block, or storage source.
     MissingNbtTarget,
+    /// NBT content requests both plain and interpreted display modes.
     ConflictingNbtDisplay,
+    /// Object content is missing a field required by its object type.
     MissingObjectField,
+    /// The object type is not recognized.
     InvalidObjectType,
 }
 
