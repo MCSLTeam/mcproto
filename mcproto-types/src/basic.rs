@@ -9,9 +9,12 @@ use std::{
     io::{Read, Write},
 };
 
-/// True is encoded as 0x01, false as 0x00.
+/// A boolean encoded as `0x00` for false or `0x01` for true.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub struct Boolean(pub bool);
+pub struct Boolean(
+    /// The boolean value.
+    pub bool,
+);
 
 impl TypeCodec for Boolean {
     fn encode(&self, writer: &mut impl Write) -> Result<(), CodecError> {
@@ -37,9 +40,12 @@ impl TypeCodec for Boolean {
     }
 }
 
-/// Signed 8-bit integer, two's complement.
+/// A two's-complement signed 8-bit integer from -128 through 127.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub struct Byte(pub i8);
+pub struct Byte(
+    /// The integer value.
+    pub i8,
+);
 
 impl TypeCodec for Byte {
     fn encode(&self, writer: &mut impl Write) -> Result<(), CodecError> {
@@ -53,9 +59,12 @@ impl TypeCodec for Byte {
     }
 }
 
-/// Unsigned 8-bit integer.
+/// An unsigned 8-bit integer from 0 through 255.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub struct UnsignedByte(pub u8);
+pub struct UnsignedByte(
+    /// The integer value.
+    pub u8,
+);
 
 impl TypeCodec for UnsignedByte {
     fn encode(&self, writer: &mut impl Write) -> Result<(), CodecError> {
@@ -69,9 +78,12 @@ impl TypeCodec for UnsignedByte {
     }
 }
 
-/// Signed 16-bit integer, big-endian two's complement.
+/// A two's-complement signed 16-bit integer from -32,768 through 32,767.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub struct Short(pub i16);
+pub struct Short(
+    /// The integer value.
+    pub i16,
+);
 
 impl TypeCodec for Short {
     fn encode(&self, writer: &mut impl Write) -> Result<(), CodecError> {
@@ -85,9 +97,12 @@ impl TypeCodec for Short {
     }
 }
 
-/// Unsigned 16-bit integer, big-endian.
+/// An unsigned 16-bit integer from 0 through 65,535.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub struct UnsignedShort(pub u16);
+pub struct UnsignedShort(
+    /// The integer value.
+    pub u16,
+);
 
 impl TypeCodec for UnsignedShort {
     fn encode(&self, writer: &mut impl Write) -> Result<(), CodecError> {
@@ -101,9 +116,13 @@ impl TypeCodec for UnsignedShort {
     }
 }
 
-/// Signed 32-bit integer, big-endian two's complement.
+/// A two's-complement signed 32-bit integer from -2,147,483,648 through
+/// 2,147,483,647.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub struct Int(pub i32);
+pub struct Int(
+    /// The integer value.
+    pub i32,
+);
 
 impl TypeCodec for Int {
     fn encode(&self, writer: &mut impl Write) -> Result<(), CodecError> {
@@ -117,9 +136,13 @@ impl TypeCodec for Int {
     }
 }
 
-/// Signed 64-bit integer, big-endian two's complement.
+/// A two's-complement signed 64-bit integer from -9,223,372,036,854,775,808
+/// through 9,223,372,036,854,775,807.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub struct Long(pub i64);
+pub struct Long(
+    /// The integer value.
+    pub i64,
+);
 
 impl TypeCodec for Long {
     fn encode(&self, writer: &mut impl Write) -> Result<(), CodecError> {
@@ -133,12 +156,25 @@ impl TypeCodec for Long {
     }
 }
 
-/// A standard UTF-8 string prefixed by its byte length as a VarInt.
+/// A UTF-8 string prefixed by its byte length as a VarInt.
+///
+/// The protocol limits both the UTF-8 payload size and the number of UTF-16
+/// code units. Supplementary [Unicode scalar values] count as two UTF-16
+/// code units. The general protocol limit is 32,767 UTF-16 code units and
+/// three UTF-8 bytes per permitted code unit; a particular field may impose
+/// a lower limit.
+///
+/// [Unicode scalar values]: https://www.unicode.org/glossary/#unicode_scalar_value
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
-pub struct PrefixedString(pub String);
+pub struct PrefixedString(
+    /// The string value.
+    pub String,
+);
 
 impl PrefixedString {
+    /// The maximum number of UTF-16 code units permitted in the string.
     pub const MAX_UTF16_CODE_UNITS: usize = 0x7fff;
+    /// The maximum size of the UTF-8 payload, excluding its VarInt length prefix.
     pub const MAX_BYTES: usize = Self::MAX_UTF16_CODE_UNITS * 3;
 
     fn validate_value(
@@ -233,25 +269,44 @@ impl TypeCodec for PrefixedString {
     }
 }
 
-/// A Minecraft resource identifier encoded as a protocol String.
+/// A resource identifier encoded as a [`PrefixedString`].
+///
+/// The namespace permits `[a-z0-9._-]`; the value permits
+/// `[a-z0-9._/-]`. See the protocol's [identifier format] for details.
+///
+/// [identifier format]: https://minecraft.wiki/w/Java_Edition_protocol/Packets#Identifier
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Identifier(String);
 
 impl Identifier {
+    /// The maximum number of UTF-16 code units permitted in the identifier.
     pub const MAX_UTF16_CODE_UNITS: usize = PrefixedString::MAX_UTF16_CODE_UNITS;
+    /// The maximum size of the UTF-8 payload, excluding its VarInt length prefix.
     pub const MAX_BYTES: usize = PrefixedString::MAX_BYTES;
+    /// The maximum encoded size, including the VarInt length prefix.
     pub const MAX_ENCODED_BYTES: usize = Self::MAX_BYTES + 3;
 
+    /// Creates an identifier after validating its namespace and path.
+    ///
+    /// An identifier without an explicit namespace is validated as belonging
+    /// to the `minecraft` namespace, but its original spelling is preserved.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidIdentifier`] if the namespace or path is empty or
+    /// contains a character not permitted by the identifier format.
     pub fn new(value: impl Into<String>) -> Result<Self, InvalidIdentifier> {
         let value = value.into();
         validate_identifier(&value)?;
         Ok(Self(value))
     }
 
+    /// Returns the identifier as a string slice.
     pub fn as_str(&self) -> &str {
         &self.0
     }
 
+    /// Returns the owned identifier string.
     pub fn into_inner(self) -> String {
         self.0
     }
@@ -296,6 +351,7 @@ fn validate_identifier(value: &str) -> Result<(), InvalidIdentifier> {
     }
 }
 
+/// An error returned when a string is not a valid Minecraft resource identifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct InvalidIdentifier;
 

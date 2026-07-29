@@ -9,28 +9,53 @@ use serde::{Deserialize, Serialize};
 
 use crate::{TypeCodec, component::JsonComponent};
 
+/// The dynamically typed JSON value used by [`JsonComponent`].
 pub use serde_json::Value as JsonValue;
 
-/// A VarInt-prefixed JSON representation of the current Java text component schema.
+/// A text component encoded as JSON in a protocol string.
+///
+/// Since Java Edition 1.20.3, the vanilla implementation permits up to
+/// 262,144 UTF-16 code units when decoding but refuses to encode more than
+/// 32,767. See the [text component format].
+///
+/// [text component format]: https://minecraft.wiki/w/Text_component_format
 #[derive(Debug, Clone, PartialEq)]
-pub struct JsonTextComponent(pub JsonComponent);
+pub struct JsonTextComponent(
+    /// The structured text component value.
+    pub JsonComponent,
+);
 
 impl JsonTextComponent {
+    /// The maximum number of UTF-16 code units accepted while decoding.
     pub const MAX_DECODE_UTF16_CODE_UNITS: usize = 262_144;
+    /// The maximum decoded UTF-8 payload size, excluding its VarInt length prefix.
     pub const MAX_DECODE_BYTES: usize = Self::MAX_DECODE_UTF16_CODE_UNITS * 3;
+    /// The maximum decoded size, including the VarInt length prefix.
     pub const MAX_DECODE_ENCODED_BYTES: usize = Self::MAX_DECODE_BYTES + 3;
 
-    // Vanilla 1.20.3+ still refuses to encode larger JSON components.
+    /// The maximum number of UTF-16 code units permitted while encoding.
+    ///
+    /// Vanilla Java Edition 1.20.3 and later still refuses to encode larger
+    /// JSON components despite accepting them while decoding.
     pub const MAX_ENCODE_UTF16_CODE_UNITS: usize = 32_767;
+    /// The maximum encoded UTF-8 payload size, excluding its VarInt length prefix.
     pub const MAX_ENCODE_BYTES: usize = Self::MAX_ENCODE_UTF16_CODE_UNITS * 3;
+    /// The maximum encoded size, including the VarInt length prefix.
     pub const MAX_ENCODE_ENCODED_BYTES: usize = Self::MAX_ENCODE_BYTES + 3;
 
     const MAX_COMPONENT_DEPTH: usize = 512;
 
+    /// Creates a plain-text component.
     pub fn text(value: impl Into<String>) -> Self {
         Self(JsonComponent::text(value))
     }
 
+    /// Parses and validates a text component from JSON without a length prefix.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `value` is invalid JSON, does not represent a text
+    /// component, or exceeds the supported nesting depth.
     pub fn from_json_str(value: &str) -> Result<Self, serde_json::Error> {
         let component = deserialize_json(value)?;
         validate_component(&component).map_err(json_validation_error)?;

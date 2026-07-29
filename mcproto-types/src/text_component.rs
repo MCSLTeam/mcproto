@@ -16,17 +16,31 @@ use mcproto_codec::{
 
 use crate::{TypeCodec, component::NbtComponent};
 
+/// The dynamically typed NBT value used by [`NbtComponent`].
 pub use fastnbt::Value as NbtValue;
 
-/// A network NBT representation of the current Java text component schema.
+/// A text component encoded as an NBT tag.
+///
+/// Plain text-only components may use an NBT string tag. Components with
+/// styling, events, or other data use an NBT compound tag. See the
+/// [text component format] and [NBT specification].
+///
+/// [text component format]: https://minecraft.wiki/w/Text_component_format
+/// [NBT specification]: https://minecraft.wiki/w/NBT_format
 #[derive(Debug, Clone, PartialEq)]
-pub struct TextComponent(pub NbtComponent);
+pub struct TextComponent(
+    /// The structured text component value.
+    pub NbtComponent,
+);
 
 impl TextComponent {
+    /// The maximum number of NBT bytes accepted while decoding a component.
     pub const MAX_DECODE_BYTES: usize = 2 * 1024 * 1024;
+    /// The maximum number of NBT values accepted while decoding a component.
     pub const MAX_DECODE_NODES: usize = 262_144;
     const MAX_COMPONENT_DEPTH: usize = 512;
 
+    /// Creates a plain-text component.
     pub fn text(value: impl Into<String>) -> Self {
         Self(NbtComponent::text(value))
     }
