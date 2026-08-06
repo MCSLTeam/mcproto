@@ -283,10 +283,25 @@ pub struct CodecError {
     /// is convenient when working through a shared reference.
     pub kind: CodecErrorKind,
     codec: CodecKind,
-    contexts: Vec<CodecKind>,
+    contexts: Contexts,
     operation: CodecOperation,
     bytes_processed: usize,
     source: Option<BoxedError>,
+}
+
+/// Stores the enclosing codec contexts of a [`CodecError`].
+///
+/// The common cases of zero or one context are stored without heap allocation;
+/// only longer chains fall back to a [`Vec`].
+#[derive(Debug, Default)]
+enum Contexts {
+    /// No enclosing contexts.
+    #[default]
+    None,
+    /// A single context, stored inline.
+    One(CodecKind),
+    /// Two or more contexts, stored in a heap-allocated vector.
+    Many(Vec<CodecKind>),
 }
 
 impl CodecError {
@@ -303,14 +318,18 @@ impl CodecError {
     /// This is the last element of [`contexts`](Self::contexts), not the
     /// originating codec returned by [`codec`](Self::codec).
     pub fn context(&self) -> Option<CodecKind> {
-        self.contexts.last().copied()
+        self.contexts().last().copied()
     }
     /// Returns all enclosing codec contexts, ordered from nearest to outermost.
     ///
     /// The originating codec is not included. Each call to
     /// [`with_context`](Self::with_context) appends one element.
     pub fn contexts(&self) -> &[CodecKind] {
-        &self.contexts
+        match &self.contexts {
+            Contexts::None => &[],
+            Contexts::One(context) => std::slice::from_ref(context),
+            Contexts::Many(contexts) => contexts,
+        }
     }
     /// Returns the operation being performed when the error occurred.
     pub const fn operation(&self) -> CodecOperation {
@@ -343,7 +362,14 @@ impl CodecError {
     /// therefore order [`contexts`](Self::contexts) from nearest to outermost,
     /// and [`context`](Self::context) returns the most recently added context.
     pub fn with_context(mut self, context: CodecKind) -> Self {
-        self.contexts.push(context);
+        self.contexts = match self.contexts {
+            Contexts::None => Contexts::One(context),
+            Contexts::One(first) => Contexts::Many(vec![first, context]),
+            Contexts::Many(mut contexts) => {
+                contexts.push(context);
+                Contexts::Many(contexts)
+            }
+        };
         self
     }
     /// Creates an error from an I/O failure that occurred while reading.
@@ -363,7 +389,7 @@ impl CodecError {
         Self {
             kind,
             codec,
-            contexts: Vec::new(),
+            contexts: Contexts::None,
             operation: CodecOperation::Read,
             bytes_processed,
             source: Some(Box::new(source)),
@@ -378,7 +404,7 @@ impl CodecError {
         Self {
             kind: CodecErrorKind::Io,
             codec,
-            contexts: Vec::new(),
+            contexts: Contexts::None,
             operation: CodecOperation::Write,
             bytes_processed,
             source: Some(Box::new(source)),
@@ -409,7 +435,7 @@ impl CodecError {
         Self {
             kind: CodecErrorKind::InvalidEncoding(reason),
             codec,
-            contexts: Vec::new(),
+            contexts: Contexts::None,
             operation,
             bytes_processed,
             source: None,
@@ -430,7 +456,7 @@ impl CodecError {
         Self {
             kind: CodecErrorKind::InvalidEncoding(reason),
             codec,
-            contexts: Vec::new(),
+            contexts: Contexts::None,
             operation,
             bytes_processed,
             source: Some(Box::new(source)),
@@ -458,7 +484,7 @@ impl fmt::Display for CodecError {
             )?,
         }
 
-        for context in &self.contexts {
+        for context in self.contexts() {
             write!(formatter, " while processing {context}")?;
         }
 
