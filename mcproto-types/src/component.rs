@@ -1175,52 +1175,35 @@ impl<'de> Deserialize<'de> for PositiveI32 {
 }
 
 /// A 128-bit universally unique identifier used by component profile data.
+///
+/// Parsing and formatting are delegated to the [`uuid`] crate; the wrapper
+/// exists to support the custom serde representations used by text components
+/// (a string, a four-integer list, or an NBT int array).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Uuid([u8; 16]);
+pub struct Uuid(uuid::Uuid);
 
 impl Uuid {
     /// Creates a UUID from its 16 bytes in network order.
     pub fn from_bytes(bytes: [u8; 16]) -> Self {
-        Self(bytes)
+        Self(uuid::Uuid::from_bytes(bytes))
     }
 
     /// Returns the UUID as 16 bytes in network order.
     pub fn into_bytes(self) -> [u8; 16] {
-        self.0
+        self.0.into_bytes()
     }
 
     /// Parses a compact or hyphenated hexadecimal UUID string.
     pub fn parse(value: &str) -> Result<Self, InvalidUuid> {
-        let mut bytes = [0_u8; 16];
-        let mut digits = value.bytes().filter(|byte| *byte != b'-');
-        for byte in &mut bytes {
-            let high = hex(digits.next().ok_or(InvalidUuid)?)?;
-            let low = hex(digits.next().ok_or(InvalidUuid)?)?;
-            *byte = high << 4 | low;
-        }
-        if digits.next().is_some()
-            || (value.len() != 32 && value.len() != 36)
-            || (value.len() == 36
-                && !value
-                    .bytes()
-                    .enumerate()
-                    .all(|(index, byte)| [8, 13, 18, 23].contains(&index) == (byte == b'-')))
-        {
-            return Err(InvalidUuid);
-        }
-        Ok(Self(bytes))
+        uuid::Uuid::try_parse(value)
+            .map(Self)
+            .map_err(|_| InvalidUuid)
     }
 }
 
 impl fmt::Display for Uuid {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for (index, byte) in self.0.iter().enumerate() {
-            if [4, 6, 8, 10].contains(&index) {
-                formatter.write_str("-")?;
-            }
-            write!(formatter, "{byte:02x}")?;
-        }
-        Ok(())
+        self.0.fmt(formatter)
     }
 }
 
@@ -1296,16 +1279,7 @@ fn uuid_from_ints(value: &[i32]) -> Result<Uuid, InvalidUuid> {
     for (chunk, integer) in bytes.chunks_exact_mut(4).zip(value) {
         chunk.copy_from_slice(&integer.to_be_bytes());
     }
-    Ok(Uuid(bytes))
-}
-
-fn hex(value: u8) -> Result<u8, InvalidUuid> {
-    match value {
-        b'0'..=b'9' => Ok(value - b'0'),
-        b'a'..=b'f' => Ok(value - b'a' + 10),
-        b'A'..=b'F' => Ok(value - b'A' + 10),
-        _ => Err(InvalidUuid),
-    }
+    Ok(Uuid::from_bytes(bytes))
 }
 
 /// Error returned when a UUID representation is malformed.
