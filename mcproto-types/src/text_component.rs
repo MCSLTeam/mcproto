@@ -353,6 +353,12 @@ fn validate_nbt_string(
     Ok(())
 }
 
+/// Tracks byte progress and limits for a reader, and records the first
+/// underlying I/O failure for later classification.
+///
+/// Like [`read_exact_counted`], interrupted operations are retried so callers
+/// never observe [`io::ErrorKind::Interrupted`], even when they call
+/// [`read`](Read::read) directly instead of [`Read::read_exact`].
 struct CountedReader<'a, R: ?Sized> {
     inner: &'a mut R,
     processed: usize,
@@ -375,33 +381,36 @@ impl<'a, R: ?Sized> CountedReader<'a, R> {
 
 impl<R: Read + ?Sized> Read for CountedReader<'_, R> {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
-        if buffer.is_empty() {
-            return Ok(0);
-        }
-        let remaining = self.byte_limit.saturating_sub(self.processed);
-        if remaining == 0 {
-            self.limit_exceeded = true;
-            return Err(io::Error::other("NBT byte limit exceeded"));
-        }
-        let buffer_len = buffer.len().min(remaining);
-        match self.inner.read(&mut buffer[..buffer_len]) {
-            Ok(0) => {
-                let error = io::Error::new(io::ErrorKind::UnexpectedEof, "unexpected end of NBT");
-                self.failure = Some(error);
-                Err(io::Error::new(
-                    io::ErrorKind::UnexpectedEof,
-                    "unexpected end of NBT",
-                ))
+        loop {
+            if buffer.is_empty() {
+                return Ok(0);
             }
-            Ok(read) => {
-                self.processed += read;
-                Ok(read)
+            let remaining = self.byte_limit.saturating_sub(self.processed);
+            if remaining == 0 {
+                self.limit_exceeded = true;
+                return Err(io::Error::other("NBT byte limit exceeded"));
             }
-            Err(error) if error.kind() == io::ErrorKind::Interrupted => Err(error),
-            Err(error) => {
-                let returned = clone_io_error(&error);
-                self.failure = Some(error);
-                Err(returned)
+            let buffer_len = buffer.len().min(remaining);
+            match self.inner.read(&mut buffer[..buffer_len]) {
+                Ok(0) => {
+                    let error =
+                        io::Error::new(io::ErrorKind::UnexpectedEof, "unexpected end of NBT");
+                    self.failure = Some(error);
+                    return Err(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "unexpected end of NBT",
+                    ));
+                }
+                Ok(read) => {
+                    self.processed += read;
+                    return Ok(read);
+                }
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+                Err(error) => {
+                    let returned = clone_io_error(&error);
+                    self.failure = Some(error);
+                    return Err(returned);
+                }
             }
         }
     }
