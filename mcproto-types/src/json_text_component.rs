@@ -5,14 +5,14 @@
 
 use std::io::{Read, Write};
 
-use mcproto_codec::{
-    error::{CodecError, CodecKind, CodecOperation, InvalidEncodingReason},
-    io::{read_exact_counted, write_all_counted},
-    varint::{VarIntRead, VarIntWrite},
-};
+use mcproto_codec::error::{CodecError, CodecKind, CodecOperation, InvalidEncodingReason};
 use serde::{Deserialize, Serialize};
 
-use crate::{TypeCodec, component::JsonComponent};
+use crate::{
+    TypeCodec,
+    basic::{decode_prefixed_string, encode_prefixed_string},
+    component::JsonComponent,
+};
 
 /// The dynamically typed JSON value used by [`JsonComponent`].
 pub use serde_json::Value as JsonValue;
@@ -67,32 +67,6 @@ impl JsonTextComponent {
         Ok(Self(component))
     }
 
-    fn validate_length(
-        value: &str,
-        max_code_units: usize,
-        max_bytes: usize,
-        operation: CodecOperation,
-        bytes_processed: usize,
-    ) -> Result<(), CodecError> {
-        if value.len() > max_bytes {
-            return Err(CodecError::invalid_encoding_for_operation(
-                CodecKind::JsonTextComponent,
-                operation,
-                bytes_processed,
-                InvalidEncodingReason::StringTooLong { max_bytes },
-            ));
-        }
-        if value.encode_utf16().count() > max_code_units {
-            return Err(CodecError::invalid_encoding_for_operation(
-                CodecKind::JsonTextComponent,
-                operation,
-                bytes_processed,
-                InvalidEncodingReason::TooManyUtf16CodeUnits { max_code_units },
-            ));
-        }
-        Ok(())
-    }
-
     fn invalid_json(
         operation: CodecOperation,
         bytes_processed: usize,
@@ -143,69 +117,22 @@ impl TypeCodec for JsonTextComponent {
             .map_err(|source| Self::invalid_json(CodecOperation::Write, 0, source))?;
         let json = String::from_utf8(bytes)
             .map_err(|source| Self::invalid_json(CodecOperation::Write, 0, source))?;
-        Self::validate_length(
+        encode_prefixed_string(
             &json,
-            Self::MAX_ENCODE_UTF16_CODE_UNITS,
+            writer,
+            CodecKind::JsonTextComponent,
             Self::MAX_ENCODE_BYTES,
-            CodecOperation::Write,
-            0,
-        )?;
-
-        let bytes = json.as_bytes();
-        let prefix_size = writer
-            .write_varint_with_size(bytes.len() as i32)
-            .map_err(|error| error.with_context(CodecKind::JsonTextComponent))?;
-        write_all_counted(writer, bytes, CodecKind::JsonTextComponent, prefix_size)
+            Self::MAX_ENCODE_UTF16_CODE_UNITS,
+        )
     }
 
     fn decode(reader: &mut impl Read) -> Result<Self, CodecError> {
-        let (byte_length, prefix_size) = reader
-            .read_varint_with_size()
-            .map_err(|error| error.with_context(CodecKind::JsonTextComponent))?;
-        let byte_length = usize::try_from(byte_length).map_err(|_| {
-            CodecError::invalid_encoding(
-                CodecKind::JsonTextComponent,
-                prefix_size,
-                InvalidEncodingReason::NegativeLength { value: byte_length },
-            )
-        })?;
-        if byte_length > Self::MAX_DECODE_BYTES {
-            return Err(CodecError::invalid_encoding(
-                CodecKind::JsonTextComponent,
-                prefix_size,
-                InvalidEncodingReason::StringTooLong {
-                    max_bytes: Self::MAX_DECODE_BYTES,
-                },
-            ));
-        }
-
-        let mut bytes = vec![0; byte_length];
-        read_exact_counted(
+        let (json, bytes_processed) = decode_prefixed_string(
             reader,
-            &mut bytes,
             CodecKind::JsonTextComponent,
-            prefix_size,
-        )?;
-        let bytes_processed = prefix_size + byte_length;
-        let json = String::from_utf8(bytes).map_err(|error| {
-            let utf8_error = error.utf8_error();
-            CodecError::invalid_encoding(
-                CodecKind::JsonTextComponent,
-                bytes_processed,
-                InvalidEncodingReason::InvalidUtf8 {
-                    valid_up_to: utf8_error.valid_up_to(),
-                    error_len: utf8_error.error_len(),
-                },
-            )
-        })?;
-        Self::validate_length(
-            &json,
-            Self::MAX_DECODE_UTF16_CODE_UNITS,
             Self::MAX_DECODE_BYTES,
-            CodecOperation::Read,
-            bytes_processed,
+            Self::MAX_DECODE_UTF16_CODE_UNITS,
         )?;
-
         let component = deserialize_json(&json)
             .map_err(|source| Self::invalid_json(CodecOperation::Read, bytes_processed, source))?;
         validate_component(&component)

@@ -34,6 +34,19 @@ pub trait VarLongWrite: Write {
     /// [`CodecError`]: crate::error::CodecError
     #[inline]
     fn write_varlong(&mut self, value: i64) -> Result<(), CodecError> {
+        self.write_varlong_with_size(value).map(|_| ())
+    }
+
+    /// Writes `value` as a VarLong and returns the number of bytes written.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`CodecError`] if the underlying writer fails. The error's
+    /// byte count reports how much of this value was written successfully.
+    ///
+    /// [`CodecError`]: crate::error::CodecError
+    #[inline]
+    fn write_varlong_with_size(&mut self, value: i64) -> Result<usize, CodecError> {
         let mut value = value as u64;
         let mut bytes_processed = 0;
 
@@ -47,7 +60,7 @@ pub trait VarLongWrite: Write {
             bytes_processed += 1;
 
             if !has_next {
-                return Ok(());
+                return Ok(bytes_processed);
             }
         }
     }
@@ -83,6 +96,19 @@ pub trait VarLongRead: Read {
     /// [`CodecError`]: crate::error::CodecError
     #[inline]
     fn read_varlong(&mut self) -> Result<i64, CodecError> {
+        self.read_varlong_with_size().map(|(value, _)| value)
+    }
+
+    /// Reads one VarLong and returns its value and encoded size in bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`CodecError`] if the input ends early, the underlying reader
+    /// fails, or the input is not a valid VarLong.
+    ///
+    /// [`CodecError`]: crate::error::CodecError
+    #[inline]
+    fn read_varlong_with_size(&mut self) -> Result<(i64, usize), CodecError> {
         let mut result = 0u64;
         let mut shift = 0;
 
@@ -115,7 +141,7 @@ pub trait VarLongRead: Read {
             result |= value << shift;
 
             if (byte & 0x80) == 0 {
-                return Ok(result as i64);
+                return Ok((result as i64, i + 1));
             }
 
             shift += 7;

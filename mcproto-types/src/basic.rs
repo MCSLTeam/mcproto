@@ -182,86 +182,134 @@ impl PrefixedString {
     /// The maximum size of the UTF-8 payload, excluding its VarInt length prefix.
     pub const MAX_BYTES: usize = Self::MAX_UTF16_CODE_UNITS * 3;
 
-    fn validate_value(
-        value: &str,
-        operation: CodecOperation,
-        bytes_processed: usize,
-    ) -> Result<(), CodecError> {
-        let bytes = value.as_bytes();
-        if bytes.len() > Self::MAX_BYTES {
-            return Err(CodecError::invalid_encoding_for_operation(
-                CodecKind::String,
-                operation,
-                bytes_processed,
-                InvalidEncodingReason::StringTooLong {
-                    max_bytes: Self::MAX_BYTES,
-                },
-            ));
-        }
-
-        if value.encode_utf16().count() > Self::MAX_UTF16_CODE_UNITS {
-            return Err(CodecError::invalid_encoding_for_operation(
-                CodecKind::String,
-                operation,
-                bytes_processed,
-                InvalidEncodingReason::TooManyUtf16CodeUnits {
-                    max_code_units: Self::MAX_UTF16_CODE_UNITS,
-                },
-            ));
-        }
-
-        Ok(())
-    }
-
     fn encode_value(value: &str, writer: &mut impl Write) -> Result<(), CodecError> {
-        Self::validate_value(value, CodecOperation::Write, 0)?;
-
-        let bytes = value.as_bytes();
-        let prefix_size = writer
-            .write_varint_with_size(bytes.len() as i32)
-            .map_err(|error| error.with_context(CodecKind::String))?;
-        write_all_counted(writer, bytes, CodecKind::String, prefix_size)
+        encode_prefixed_string(
+            value,
+            writer,
+            CodecKind::String,
+            Self::MAX_BYTES,
+            Self::MAX_UTF16_CODE_UNITS,
+        )
     }
 
     fn decode_value(reader: &mut impl Read) -> Result<(String, usize), CodecError> {
-        let (byte_length, prefix_size) = reader
-            .read_varint_with_size()
-            .map_err(|error| error.with_context(CodecKind::String))?;
-        let byte_length = usize::try_from(byte_length).map_err(|_| {
-            CodecError::invalid_encoding(
-                CodecKind::String,
-                prefix_size,
-                InvalidEncodingReason::NegativeLength { value: byte_length },
-            )
-        })?;
-
-        if byte_length > Self::MAX_BYTES {
-            return Err(CodecError::invalid_encoding(
-                CodecKind::String,
-                prefix_size,
-                InvalidEncodingReason::StringTooLong {
-                    max_bytes: Self::MAX_BYTES,
-                },
-            ));
-        }
-
-        let mut bytes = vec![0; byte_length];
-        read_exact_counted(reader, &mut bytes, CodecKind::String, prefix_size)?;
-        let bytes_processed = prefix_size + byte_length;
-        let value = String::from_utf8(bytes).map_err(|error| {
-            let utf8_error = error.utf8_error();
-            CodecError::invalid_encoding(
-                CodecKind::String,
-                bytes_processed,
-                InvalidEncodingReason::InvalidUtf8 {
-                    valid_up_to: utf8_error.valid_up_to(),
-                    error_len: utf8_error.error_len(),
-                },
-            )
-        })?;
-        Self::validate_value(&value, CodecOperation::Read, bytes_processed)?;
-        Ok((value, bytes_processed))
+        decode_prefixed_string(
+            reader,
+            CodecKind::String,
+            Self::MAX_BYTES,
+            Self::MAX_UTF16_CODE_UNITS,
+        )
     }
+}
+
+/// Encodes `value` as a VarInt-length-prefixed string.
+///
+/// `codec` identifies the codec in errors, `max_bytes` limits the UTF-8
+/// payload, and `max_code_units` limits the number of UTF-16 code units.
+/// Supplementary Unicode scalar values count as two UTF-16 code units.
+///
+/// # Errors
+///
+/// Returns a [`CodecError`] if the string exceeds `max_bytes` or
+/// `max_code_units`, or if the underlying writer fails while writing the length
+/// prefix or payload.
+pub(crate) fn encode_prefixed_string(
+    value: &str,
+    writer: &mut impl Write,
+    codec: CodecKind,
+    max_bytes: usize,
+    max_code_units: usize,
+) -> Result<(), CodecError> {
+    if value.len() > max_bytes {
+        return Err(CodecError::invalid_encoding_for_operation(
+            codec,
+            CodecOperation::Write,
+            0,
+            InvalidEncodingReason::StringTooLong { max_bytes },
+        ));
+    }
+    if value.encode_utf16().count() > max_code_units {
+        return Err(CodecError::invalid_encoding_for_operation(
+            codec,
+            CodecOperation::Write,
+            0,
+            InvalidEncodingReason::TooManyUtf16CodeUnits { max_code_units },
+        ));
+    }
+
+    let bytes = value.as_bytes();
+    let prefix_size = writer
+        .write_varint_with_size(bytes.len() as i32)
+        .map_err(|error| error.with_context(codec))?;
+    write_all_counted(writer, bytes, codec, prefix_size)
+}
+
+/// Decodes a VarInt-length-prefixed string and returns its value and the total
+/// number of bytes processed, including the length prefix.
+///
+/// `codec` is the codec in errors, `max_bytes` limits the UTF-8 payload, and
+/// `max_code_units` limits the number of UTF-16 code units.
+///
+/// # Errors
+///
+/// Returns a [`CodecError`] if the length prefix is negative, the payload
+/// exceeds `max_bytes`, the payload contains invalid UTF-8 or more than
+/// `max_code_units` UTF-16 code units, or the reader reaches an unexpected end
+/// of input.
+pub(crate) fn decode_prefixed_string(
+    reader: &mut impl Read,
+    codec: CodecKind,
+    max_bytes: usize,
+    max_code_units: usize,
+) -> Result<(String, usize), CodecError> {
+    let (byte_length, prefix_size) = reader
+        .read_varint_with_size()
+        .map_err(|error| error.with_context(codec))?;
+    let byte_length = usize::try_from(byte_length).map_err(|_| {
+        CodecError::invalid_encoding(
+            codec,
+            prefix_size,
+            InvalidEncodingReason::NegativeLength { value: byte_length },
+        )
+    })?;
+
+    if byte_length > max_bytes {
+        return Err(CodecError::invalid_encoding(
+            codec,
+            prefix_size,
+            InvalidEncodingReason::StringTooLong { max_bytes },
+        ));
+    }
+
+    let mut bytes = vec![0; byte_length];
+    read_exact_counted(reader, &mut bytes, codec, prefix_size)?;
+    let bytes_processed = prefix_size + byte_length;
+    let value = String::from_utf8(bytes).map_err(|error| {
+        let utf8_error = error.utf8_error();
+        CodecError::invalid_encoding(
+            codec,
+            bytes_processed,
+            InvalidEncodingReason::InvalidUtf8 {
+                valid_up_to: utf8_error.valid_up_to(),
+                error_len: utf8_error.error_len(),
+            },
+        )
+    })?;
+    if value.len() > max_bytes {
+        return Err(CodecError::invalid_encoding(
+            codec,
+            bytes_processed,
+            InvalidEncodingReason::StringTooLong { max_bytes },
+        ));
+    }
+    if value.encode_utf16().count() > max_code_units {
+        return Err(CodecError::invalid_encoding(
+            codec,
+            bytes_processed,
+            InvalidEncodingReason::TooManyUtf16CodeUnits { max_code_units },
+        ));
+    }
+    Ok((value, bytes_processed))
 }
 
 impl TypeCodec for PrefixedString {

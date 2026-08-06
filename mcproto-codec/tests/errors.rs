@@ -99,6 +99,16 @@ fn varint_size_methods_report_encoded_size() {
     assert_eq!(input.read_varint_with_size().unwrap(), (25565, 3));
 }
 
+// The size-returning VarLong APIs agree on the encoded length.
+#[test]
+fn varlong_size_methods_report_encoded_size() {
+    let mut encoded = Vec::new();
+    assert_eq!(encoded.write_varlong_with_size(-1).unwrap(), 10);
+
+    let mut input = encoded.as_slice();
+    assert_eq!(input.read_varlong_with_size().unwrap(), (-1, 10));
+}
+
 // Malformed terminal bytes report both the reason and consumed byte count.
 #[test]
 fn varint_rejects_continuation_in_fifth_byte() {
