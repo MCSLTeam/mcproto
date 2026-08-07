@@ -3,7 +3,7 @@
 use mcproto_codec::error::{CodecErrorKind, CodecKind, CodecOperation, InvalidEncodingReason};
 use mcproto_types::{TypeCodec, basic::Identifier};
 
-#[test]
+#[test] 
 fn valid_identifiers_roundtrip() {
     for value in [
         "stone",
@@ -47,4 +47,30 @@ fn decoder_rejects_invalid_identifiers_after_consuming_the_string() {
     assert_eq!(error.codec(), CodecKind::Identifier);
     assert_eq!(error.operation(), CodecOperation::Read);
     assert_eq!(error.bytes_processed(), encoded.len());
+}
+
+#[test]
+fn display_prints_the_identifier_string() {
+    let identifier = Identifier::new("example_namespace:path/to.some-block").unwrap();
+    assert_eq!(
+        identifier.to_string(),
+        "example_namespace:path/to.some-block"
+    );
+}
+
+#[test]
+fn serde_roundtrip_preserves_the_identifier() {
+    let identifier = Identifier::new("minecraft:stone").unwrap();
+    let json = serde_json::to_string(&identifier).unwrap();
+    assert_eq!(json, "\"minecraft:stone\"");
+    assert_eq!(
+        serde_json::from_str::<Identifier>(&json).unwrap(),
+        identifier
+    );
+}
+
+#[test]
+fn serde_rejects_invalid_identifiers() {
+    let error = serde_json::from_str::<Identifier>("\"A:b\"").unwrap_err();
+    assert!(error.is_data());
 }

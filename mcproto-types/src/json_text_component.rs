@@ -57,13 +57,18 @@ impl JsonTextComponent {
 
     /// Parses and validates a text component from JSON without a length prefix.
     ///
+    /// On failure, the number of bytes of `value` is reported as
+    /// [`CodecError::bytes_processed`].
+    ///
     /// # Errors
     ///
-    /// Returns an error if `value` is invalid JSON, does not represent a text
-    /// component, or exceeds the supported nesting depth.
-    pub fn from_json_str(value: &str) -> Result<Self, serde_json::Error> {
-        let component = deserialize_json(value)?;
-        validate_component(&component).map_err(json_validation_error)?;
+    /// Returns a [`CodecError`] if `value` is invalid JSON, does not represent
+    /// a text component, or exceeds the supported nesting depth.
+    pub fn from_json_str(value: &str) -> Result<Self, CodecError> {
+        let component = deserialize_json(value)
+            .map_err(|source| Self::invalid_json(CodecOperation::Read, value.len(), source))?;
+        validate_component(&component)
+            .map_err(|source| Self::invalid_json(CodecOperation::Read, value.len(), source))?;
         Ok(Self(component))
     }
 

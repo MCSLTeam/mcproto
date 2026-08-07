@@ -9,6 +9,7 @@ use mcproto_codec::{
     io::{read_exact_counted, write_all_counted},
     varint::{VarIntRead, VarIntWrite},
 };
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 use std::{
     fmt,
     io::{Read, Write},
@@ -365,6 +366,30 @@ impl Identifier {
     }
 }
 
+impl fmt::Display for Identifier {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl Serialize for Identifier {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for Identifier {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Self::new(String::deserialize(deserializer)?).map_err(D::Error::custom)
+    }
+}
+
 impl TypeCodec for Identifier {
     fn encode(&self, writer: &mut impl Write) -> Result<(), CodecError> {
         PrefixedString::encode_value(&self.0, writer)
@@ -384,7 +409,14 @@ impl TypeCodec for Identifier {
     }
 }
 
-fn validate_identifier(value: &str) -> Result<(), InvalidIdentifier> {
+/// Returns whether a string is a valid Minecraft resource identifier.
+///
+/// An identifier without an explicit namespace is validated as belonging to
+/// the `minecraft` namespace. The namespace permits `[a-z0-9._-]`; the path
+/// permits `[a-z0-9._/-]`. See the protocol's [identifier format].
+///
+/// [identifier format]: https://minecraft.wiki/w/Java_Edition_protocol/Packets#Identifier
+pub(crate) fn is_valid_identifier(value: &str) -> bool {
     let (namespace, path) = match value.split_once(':') {
         Some((namespace, path)) => (namespace, path),
         None => ("minecraft", value),
@@ -397,7 +429,11 @@ fn validate_identifier(value: &str) -> Result<(), InvalidIdentifier> {
         && path.bytes().all(|byte| {
             byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"/._-".contains(&byte)
         });
-    if namespace_is_valid && path_is_valid && !path.contains(':') {
+    namespace_is_valid && path_is_valid && !path.contains(':')
+}
+
+fn validate_identifier(value: &str) -> Result<(), InvalidIdentifier> {
+    if is_valid_identifier(value) {
         Ok(())
     } else {
         Err(InvalidIdentifier)

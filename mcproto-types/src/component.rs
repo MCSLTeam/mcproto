@@ -958,19 +958,7 @@ impl fmt::Display for InvalidResourceLocation {
 impl std::error::Error for InvalidResourceLocation {}
 
 fn validate_resource_location(value: &str) -> Result<(), InvalidResourceLocation> {
-    let (namespace, path) = match value.split_once(':') {
-        Some((namespace, path)) => (namespace, path),
-        None => ("minecraft", value),
-    };
-    let namespace_ok = !namespace.is_empty()
-        && namespace.bytes().all(|byte| {
-            byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"_.-".contains(&byte)
-        });
-    let path_ok = !path.is_empty()
-        && path.bytes().all(|byte| {
-            byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"/._-".contains(&byte)
-        });
-    if namespace_ok && path_ok && !path.contains(':') {
+    if crate::basic::is_valid_identifier(value) {
         Ok(())
     } else {
         Err(InvalidResourceLocation)

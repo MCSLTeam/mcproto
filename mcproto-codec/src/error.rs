@@ -503,3 +503,157 @@ impl Error for CodecError {
             .map(|source| source as &(dyn Error + 'static))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn read_error() -> CodecError {
+        CodecError::from_read_error(
+            CodecKind::VarInt,
+            3,
+            io::Error::new(io::ErrorKind::UnexpectedEof, "stream ended"),
+        )
+    }
+
+    fn write_error() -> CodecError {
+        CodecError::from_write_error(CodecKind::String, 5, io::Error::other("disk full"))
+    }
+
+    fn invalid_encoding_error() -> CodecError {
+        CodecError::invalid_encoding_for_operation(
+            CodecKind::Boolean,
+            CodecOperation::Read,
+            1,
+            InvalidEncodingReason::InvalidBooleanValue { value: 2 },
+        )
+    }
+
+    fn invalid_encoding_with_source() -> CodecError {
+        CodecError::invalid_encoding_for_operation_with_source(
+            CodecKind::JsonTextComponent,
+            CodecOperation::Read,
+            4,
+            InvalidEncodingReason::InvalidJson,
+            io::Error::new(io::ErrorKind::InvalidData, "bad json"),
+        )
+    }
+
+    #[test]
+    fn display_reports_unexpected_eof_operation_and_progress() {
+        assert_eq!(
+            read_error().to_string(),
+            "unexpected end of input while reading VarInt after 3 bytes: stream ended"
+        );
+    }
+
+    #[test]
+    fn display_reports_write_io_errors() {
+        assert_eq!(
+            write_error().to_string(),
+            "I/O error while writing String after 5 bytes: disk full"
+        );
+    }
+
+    #[test]
+    fn display_reports_invalid_encoding_reason() {
+        assert_eq!(
+            invalid_encoding_error().to_string(),
+            "invalid Boolean encoding after 1 bytes: invalid boolean value 0x02"
+        );
+    }
+
+    #[test]
+    fn display_appends_contexts_and_source_in_order() {
+        let error = invalid_encoding_with_source()
+            .with_context(CodecKind::String)
+            .with_context(CodecKind::Identifier)
+            .with_context(CodecKind::TextComponent);
+        assert_eq!(
+            error.to_string(),
+            "invalid JsonTextComponent encoding after 4 bytes: invalid JSON data \
+             while processing String while processing Identifier while processing TextComponent: bad json"
+        );
+    }
+
+    #[test]
+    fn display_omits_contexts_and_source_when_absent() {
+        let error = invalid_encoding_error();
+        assert!(!error.to_string().contains("while processing"));
+        assert!(
+            !error.to_string().ends_with(": invalid boolean value 0x02:"),
+            "a source was rendered when none is stored"
+        );
+    }
+
+    #[test]
+    fn contexts_are_empty_by_default() {
+        let error = read_error();
+        assert!(error.contexts().is_empty());
+        assert_eq!(error.context(), None);
+    }
+
+    #[test]
+    fn single_context_is_reported_inline() {
+        let error = read_error().with_context(CodecKind::String);
+        assert_eq!(error.contexts(), &[CodecKind::String]);
+        assert_eq!(error.context(), Some(CodecKind::String));
+    }
+
+    #[test]
+    fn many_contexts_are_reported_nearest_to_outermost() {
+        let error = invalid_encoding_error()
+            .with_context(CodecKind::String)
+            .with_context(CodecKind::Identifier)
+            .with_context(CodecKind::TextComponent);
+        assert_eq!(
+            error.contexts(),
+            &[
+                CodecKind::String,
+                CodecKind::Identifier,
+                CodecKind::TextComponent
+            ]
+        );
+        assert_eq!(error.context(), Some(CodecKind::TextComponent));
+        assert_eq!(error.codec(), CodecKind::Boolean);
+    }
+
+    #[test]
+    fn io_error_returns_the_underlying_io_error() {
+        let error = read_error();
+        let io_error = error.io_error().expect("io_error() should be Some");
+        assert_eq!(io_error.kind(), io::ErrorKind::UnexpectedEof);
+        assert_eq!(io_error.to_string(), "stream ended");
+        assert_eq!(
+            error
+                .source()
+                .and_then(|source| source.downcast_ref::<io::Error>())
+                .map(io::Error::kind),
+            Some(io::ErrorKind::UnexpectedEof)
+        );
+    }
+
+    #[test]
+    fn io_error_returns_none_for_non_io_sources() {
+        let error = CodecError::invalid_encoding_for_operation_with_source(
+            CodecKind::TextComponent,
+            CodecOperation::Read,
+            0,
+            InvalidEncodingReason::InvalidNbt,
+            NonIoSource,
+        );
+        assert!(error.io_error().is_none());
+        assert!(error.source().is_some());
+    }
+
+    #[derive(Debug)]
+    struct NonIoSource;
+
+    impl fmt::Display for NonIoSource {
+        fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("non-io source")
+        }
+    }
+
+    impl Error for NonIoSource {}
+}
