@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["mcproto", "mcproto-codec", "mcproto-types"]
+members = ["mcproto", "mcproto-codec", "mcproto-oauth", "mcproto-types"]
 
 [workspace.package]
 version = "0.2.1"
@@ -11,10 +11,17 @@ repository = "https://github.com/MCSLTeam/mcproto"
 
 [workspace.dependencies]
 fastnbt = "2.6.2"
+base64 = "0.22.1"
+getrandom = "0.3.3"
 mcproto-codec = { version = "0.2.1", path = "mcproto-codec" }
+mcproto-oauth = { version = "0.2.1", path = "mcproto-oauth" }
 mcproto-types = { version = "0.2.1", path = "mcproto-types" }
+reqwest = { version = "0.12.22", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "1.0.151", features = ["unbounded_depth"] }
 serde_stacker = "0.1.14"
+sha2 = "0.10.9"
+thiserror = "2.0.16"
+tokio = { version = "1.47.1", features = ["io-util", "macros", "net", "rt", "time"] }
 url = "2.5.7"
 uuid = { version = "1.17.1", default-features = false, features = ["std"] }
