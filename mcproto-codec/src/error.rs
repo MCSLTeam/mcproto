@@ -29,6 +29,10 @@ pub enum CodecKind {
     /// Values range from -9,223,372,036,854,775,808 through
     /// 9,223,372,036,854,775,807.
     VarLong,
+    /// A complete Named Binary Tag value.
+    ///
+    /// The value is encoded and decoded using `fastnbt`.
+    Nbt,
     /// A boolean encoded as `0x00` for false or `0x01` for true.
     Boolean,
     /// A two's-complement signed 8-bit integer from -128 through 127.
@@ -87,6 +91,7 @@ impl fmt::Display for CodecKind {
         match self {
             Self::VarInt => formatter.write_str("VarInt"),
             Self::VarLong => formatter.write_str("VarLong"),
+            Self::Nbt => formatter.write_str("Nbt"),
             Self::Boolean => formatter.write_str("Boolean"),
             Self::Byte => formatter.write_str("Byte"),
             Self::UnsignedByte => formatter.write_str("UnsignedByte"),

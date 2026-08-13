@@ -6,6 +6,7 @@
 pub mod basic;
 pub mod component;
 pub mod json_text_component;
+pub mod nbt;
 pub mod text_component;
 
 pub trait TypeCodec {

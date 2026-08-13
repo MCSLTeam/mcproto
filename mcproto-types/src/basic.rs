@@ -453,7 +453,6 @@ impl fmt::Display for InvalidIdentifier {
 
 impl std::error::Error for InvalidIdentifier {}
 
-
 /// A variable-length two's-complement signed 32-bit integer.
 ///
 /// VarInts use one to five bytes on the wire. Each byte carries seven payload
