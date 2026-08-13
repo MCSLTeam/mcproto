@@ -3,7 +3,7 @@ resolver = "3"
 members = ["mcproto", "mcproto-codec", "mcproto-oauth", "mcproto-types"]
 
 [workspace.package]
-version = "0.2.1"
+version = "0.3.0"
 edition = "2024"
 authors = ["MCSLTeam <services@mcsl.com.cn>"]
 license = "MIT"
