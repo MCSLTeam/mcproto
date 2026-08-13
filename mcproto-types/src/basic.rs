@@ -806,3 +806,112 @@ impl TypeCodec for BitSet {
         Ok(Self(words))
     }
 }
+
+/// A bit set with a fixed length of `N` bits.
+///
+/// A fixed bit set is encoded as exactly `ceil(N / 8)` bytes, without a
+/// length prefix. This differs from [`BitSet`], which is prefixed by a VarInt
+/// and stores packed 64-bit words. The packed bytes follow the same bit order
+/// as Java's `BitSet.toByteArray`: bit `i` is set when the following expression
+/// is non-zero:
+///
+/// ```text
+/// (data[i / 8] & (1 << (i % 8))) != 0
+/// ```
+///
+/// The final byte is padded with zero bits when `N` is not divisible by eight.
+///
+/// # Examples
+///
+/// ```
+/// use mcproto_types::{TypeCodec, basic::FixedBitSet};
+///
+/// // Bits 0, 7, and 8 are set in a nine-bit set.
+/// let bits = FixedBitSet::<9>(vec![0b1000_0001, 0b0000_0001]);
+///
+/// let mut encoded = Vec::new();
+/// bits.encode(&mut encoded)?;
+/// assert_eq!(encoded, [0b1000_0001, 0b0000_0001]);
+///
+/// let mut input = encoded.as_slice();
+/// assert_eq!(FixedBitSet::<9>::decode(&mut input)?, bits);
+/// assert!(bits.contains(0));
+/// assert!(bits.contains(7));
+/// assert!(bits.contains(8));
+/// assert!(!bits.contains(9));
+/// # Ok::<(), mcproto_codec::error::CodecError>(())
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub struct FixedBitSet<const N: usize>(
+    /// The packed bytes, in little-endian bit order within each byte.
+    pub Vec<u8>,
+);
+
+impl<const N: usize> FixedBitSet<N> {
+    /// The number of packed bytes used by this fixed bit set.
+    pub const BYTE_LEN: usize = N.div_ceil(8);
+
+    /// Returns whether the bit at `index` is set.
+    ///
+    /// Indices outside this set's fixed length return `false`.
+    pub fn contains(&self, index: usize) -> bool {
+        index < N
+            && self
+                .0
+                .get(index / 8)
+                .is_some_and(|byte| (byte & (1 << (index % 8))) != 0)
+    }
+
+    fn validate(
+        &self,
+        operation: CodecOperation,
+        bytes_processed: usize,
+    ) -> Result<(), CodecError> {
+        if self.0.len() != Self::BYTE_LEN {
+            return Err(CodecError::invalid_encoding_for_operation(
+                CodecKind::FixedBitSet,
+                operation,
+                bytes_processed,
+                InvalidEncodingReason::InvalidFixedBitSetLength {
+                    expected: Self::BYTE_LEN,
+                    actual: self.0.len(),
+                },
+            ));
+        }
+
+        if let Some(last_byte) = self.0.last()
+            && N % 8 != 0
+        {
+            let allowed_mask = (1u8 << (N % 8)) - 1;
+            if last_byte & !allowed_mask != 0 {
+                return Err(CodecError::invalid_encoding_for_operation(
+                    CodecKind::FixedBitSet,
+                    operation,
+                    bytes_processed,
+                    InvalidEncodingReason::ValueOutOfRange {
+                        terminal_byte: *last_byte,
+                        allowed_mask,
+                    },
+                ));
+            }
+        }
+
+        Ok(())
+    }
+}
+
+impl<const N: usize> TypeCodec for FixedBitSet<N> {
+    fn encode(&self, writer: &mut impl Write) -> Result<(), CodecError> {
+        self.validate(CodecOperation::Write, 0)?;
+        write_all_counted(writer, &self.0, CodecKind::FixedBitSet, 0)
+    }
+
+    fn decode(reader: &mut impl Read) -> Result<Self, CodecError> {
+        let mut bytes = vec![0; Self::BYTE_LEN];
+        read_exact_counted(reader, &mut bytes, CodecKind::FixedBitSet, 0)?;
+
+        let value = Self(bytes);
+        value.validate(CodecOperation::Read, Self::BYTE_LEN)?;
+        Ok(value)
+    }
+}

@@ -59,6 +59,8 @@ pub enum CodecKind {
     Uuid,
     /// A length-prefixed bit set of packed 64-bit words.
     BitSet,
+    /// A fixed-length bit set of packed bytes.
+    FixedBitSet,
     /// A UTF-8 string prefixed by its byte length as a VarInt.
     ///
     /// The protocol limits both the UTF-8 payload size and the number of UTF-16
@@ -113,6 +115,7 @@ impl fmt::Display for CodecKind {
             Self::Angle => formatter.write_str("Angle"),
             Self::Uuid => formatter.write_str("UUID"),
             Self::BitSet => formatter.write_str("BitSet"),
+            Self::FixedBitSet => formatter.write_str("Fixed BitSet"),
             Self::String => formatter.write_str("String"),
             Self::Identifier => formatter.write_str("Identifier"),
             Self::TextComponent => formatter.write_str("TextComponent"),
@@ -177,6 +180,13 @@ pub enum InvalidEncodingReason {
         /// The negative length decoded from the data.
         value: i32,
     },
+    /// The packed byte array does not have the required fixed length.
+    InvalidFixedBitSetLength {
+        /// The expected number of packed bytes.
+        expected: usize,
+        /// The actual number of packed bytes.
+        actual: usize,
+    },
     /// The data contains an invalid UTF-8 sequence.
     InvalidUtf8 {
         /// The byte offset in the UTF-8 payload up to which the data is valid.
@@ -224,6 +234,10 @@ impl fmt::Display for InvalidEncodingReason {
             Self::NegativeLength { value } => {
                 write!(formatter, "length cannot be negative: {value}")
             }
+            Self::InvalidFixedBitSetLength { expected, actual } => write!(
+                formatter,
+                "fixed bit set requires {expected} packed bytes, got {actual}"
+            ),
             Self::InvalidUtf8 {
                 valid_up_to,
                 error_len: Some(error_len),
