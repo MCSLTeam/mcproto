@@ -524,3 +524,73 @@ impl TypeCodec for VarLong {
         reader.read_varlong().map(Self)
     }
 }
+
+/// A Minecraft protocol block position packed into a 64-bit value.
+///
+/// The wire format stores `x` in the 26 most-significant bits, `z` in the
+/// middle 26 bits, and `y` in the 12 least-significant bits. Each component is
+/// a signed two's-complement integer:
+///
+/// ```text
+/// x: 26 bits | z: 26 bits | y: 12 bits
+/// ```
+///
+/// The value is packed as:
+///
+/// ```text
+/// ((x & 0x3FFFFFF) << 38) | ((z & 0x3FFFFFF) << 12) | (y & 0xFFF)
+/// ```
+///
+/// # Examples
+///
+/// ```
+/// use mcproto_types::{TypeCodec, basic::Position};
+///
+/// let position = Position {
+///     x: 18_357_644,
+///     y: 831,
+///     z: -20_882_616,
+/// };
+///
+/// let mut encoded = Vec::new();
+/// position.encode(&mut encoded)?;
+/// assert_eq!(
+///     encoded,
+///     [0x46, 0x07, 0x63, 0x2c, 0x15, 0xb4, 0x83, 0x3f]
+/// );
+///
+/// let mut input = encoded.as_slice();
+/// assert_eq!(Position::decode(&mut input)?, position);
+/// assert!(input.is_empty());
+/// # Ok::<(), mcproto_codec::error::CodecError>(())
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct Position {
+    /// The x coordinate, from -33,554,432 through 33,554,431.
+    pub x: i32,
+    /// The y coordinate, from -2,048 through 2,047.
+    pub y: i16,
+    /// The z coordinate, from -33,554,432 through 33,554,431.
+    pub z: i32,
+}
+
+impl TypeCodec for Position {
+    fn encode(&self, writer: &mut impl Write) -> Result<(), CodecError> {
+        let value = ((self.x as i64 & 0x3ff_ffff) << 38)
+            | ((self.z as i64 & 0x3ff_ffff) << 12)
+            | (self.y as i64 & 0xfff);
+        write_all_counted(writer, &value.to_be_bytes(), CodecKind::Position, 0)
+    }
+
+    fn decode(reader: &mut impl Read) -> Result<Self, CodecError> {
+        let mut bytes = [0; 8];
+        read_exact_counted(reader, &mut bytes, CodecKind::Position, 0)?;
+        let value = i64::from_be_bytes(bytes);
+
+        Ok(Self {
+            x: (value >> 38) as i32,
+            y: ((value << 52) >> 52) as i16,
+            z: ((value << 26) >> 38) as i32,
+        })
+    }
+}

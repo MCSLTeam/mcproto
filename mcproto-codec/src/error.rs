@@ -49,6 +49,10 @@ pub enum CodecKind {
     /// A two's-complement signed 64-bit integer from -9,223,372,036,854,775,808
     /// through 9,223,372,036,854,775,807.
     Long,
+    /// A block position packed into a 64-bit integer.
+    ///
+    /// The x, z, and y coordinates occupy 26, 26, and 12 bits respectively.
+    Position,
     /// A UTF-8 string prefixed by its byte length as a VarInt.
     ///
     /// The protocol limits both the UTF-8 payload size and the number of UTF-16
@@ -99,6 +103,7 @@ impl fmt::Display for CodecKind {
             Self::UnsignedShort => formatter.write_str("UnsignedShort"),
             Self::Int => formatter.write_str("Int"),
             Self::Long => formatter.write_str("Long"),
+            Self::Position => formatter.write_str("Position"),
             Self::String => formatter.write_str("String"),
             Self::Identifier => formatter.write_str("Identifier"),
             Self::TextComponent => formatter.write_str("TextComponent"),
