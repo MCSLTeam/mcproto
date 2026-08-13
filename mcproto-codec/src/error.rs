@@ -53,6 +53,10 @@ pub enum CodecKind {
     ///
     /// The x, z, and y coordinates occupy 26, 26, and 12 bits respectively.
     Position,
+    /// A rotation angle encoded in 1/256 turn steps.
+    Angle,
+    /// A 128-bit universally unique identifier.
+    Uuid,
     /// A UTF-8 string prefixed by its byte length as a VarInt.
     ///
     /// The protocol limits both the UTF-8 payload size and the number of UTF-16
@@ -104,6 +108,8 @@ impl fmt::Display for CodecKind {
             Self::Int => formatter.write_str("Int"),
             Self::Long => formatter.write_str("Long"),
             Self::Position => formatter.write_str("Position"),
+            Self::Angle => formatter.write_str("Angle"),
+            Self::Uuid => formatter.write_str("UUID"),
             Self::String => formatter.write_str("String"),
             Self::Identifier => formatter.write_str("Identifier"),
             Self::TextComponent => formatter.write_str("TextComponent"),

@@ -5,6 +5,11 @@
 
 use std::{collections::BTreeMap, fmt, num::NonZeroI32};
 
+/// A UUID representation used by text component profile data.
+///
+/// The protocol wire codec lives on [`crate::basic::Uuid`]; this re-export
+/// adds the component-specific serde representations described below.
+pub use crate::basic::Uuid;
 use fastnbt::Value as NbtValue;
 use serde::{
     Deserialize, Deserializer, Serialize, Serializer,
@@ -1162,25 +1167,7 @@ impl<'de> Deserialize<'de> for PositiveI32 {
     }
 }
 
-/// A 128-bit universally unique identifier used by component profile data.
-///
-/// Parsing and formatting are delegated to the [`uuid`] crate; the wrapper
-/// exists to support the custom serde representations used by text components
-/// (a string, a four-integer list, or an NBT int array).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Uuid(uuid::Uuid);
-
 impl Uuid {
-    /// Creates a UUID from its 16 bytes in network order.
-    pub fn from_bytes(bytes: [u8; 16]) -> Self {
-        Self(uuid::Uuid::from_bytes(bytes))
-    }
-
-    /// Returns the UUID as 16 bytes in network order.
-    pub fn into_bytes(self) -> [u8; 16] {
-        self.0.into_bytes()
-    }
-
     /// Parses a compact or hyphenated hexadecimal UUID string.
     pub fn parse(value: &str) -> Result<Self, InvalidUuid> {
         uuid::Uuid::try_parse(value)

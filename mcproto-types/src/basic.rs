@@ -594,3 +594,122 @@ impl TypeCodec for Position {
         })
     }
 }
+
+/// A rotation angle encoded in steps of 1/256 of a full turn.
+///
+/// The wire value is a single byte. Because 256 steps represent one full turn,
+/// the value wraps around and its signedness does not matter.
+///
+/// # Examples
+///
+/// ```
+/// use mcproto_types::{TypeCodec, basic::Angle};
+///
+/// let angle = Angle(64);
+///
+/// let mut encoded = Vec::new();
+/// angle.encode(&mut encoded)?;
+/// assert_eq!(encoded, [64]);
+///
+/// let mut input = encoded.as_slice();
+/// assert_eq!(Angle::decode(&mut input)?, angle);
+///
+/// assert_eq!(angle.to_degrees(), 90.0);
+/// assert!((angle.to_radians() - std::f64::consts::FRAC_PI_2).abs() < 1e-12);
+/// # Ok::<(), mcproto_codec::error::CodecError>(())
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct Angle(
+    /// The raw angle step count, from 0 through 255.
+    pub u8,
+);
+
+impl Angle {
+    /// Returns the angle in degrees.
+    ///
+    /// A full turn of 256 steps is equivalent to 360 degrees.
+    pub fn to_degrees(&self) -> f64 {
+        f64::from(self.0) * 360.0 / 256.0
+    }
+
+    /// Returns the angle in radians.
+    ///
+    /// A full turn of 256 steps is equivalent to 2π radians.
+    pub fn to_radians(&self) -> f64 {
+        f64::from(self.0) * std::f64::consts::TAU / 256.0
+    }
+}
+
+impl TypeCodec for Angle {
+    fn encode(&self, writer: &mut impl Write) -> Result<(), CodecError> {
+        write_all_counted(writer, &[self.0], CodecKind::Angle, 0)
+    }
+
+    fn decode(reader: &mut impl Read) -> Result<Self, CodecError> {
+        let mut bytes = [0; 1];
+        read_exact_counted(reader, &mut bytes, CodecKind::Angle, 0)?;
+        Ok(Self(bytes[0]))
+    }
+}
+
+/// A 128-bit universally unique identifier.
+///
+/// Encoded as an unsigned 128-bit integer (or two unsigned 64-bit integers: the
+/// most significant 64 bits and then the least significant 64 bits).
+///
+/// See [Universally unique identifier](https://en.wikipedia.org/wiki/Universally_unique_identifier).
+///
+/// # Examples
+///
+/// ```
+/// use mcproto_types::{TypeCodec, basic::Uuid};
+///
+/// let value = Uuid::from_bytes([
+///     0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0,
+///     0x0f, 0xed, 0xcb, 0xa9, 0x87, 0x65, 0x43, 0x21,
+/// ]);
+///
+/// let mut encoded = Vec::new();
+/// value.encode(&mut encoded)?;
+/// assert_eq!(
+///     encoded,
+///     [
+///         0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0,
+///         0x0f, 0xed, 0xcb, 0xa9, 0x87, 0x65, 0x43, 0x21,
+///     ]
+/// );
+///
+/// let mut input = encoded.as_slice();
+/// assert_eq!(Uuid::decode(&mut input)?, value);
+/// assert!(input.is_empty());
+/// # Ok::<(), mcproto_codec::error::CodecError>(())
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Uuid(
+    /// The UUID value.
+    pub uuid::Uuid,
+);
+
+impl Uuid {
+    /// Creates a UUID from 16 bytes in big-endian order.
+    pub fn from_bytes(bytes: [u8; 16]) -> Self {
+        Self(uuid::Uuid::from_bytes(bytes))
+    }
+
+    /// Returns the UUID as 16 bytes in big-endian order.
+    pub fn into_bytes(self) -> [u8; 16] {
+        self.0.into_bytes()
+    }
+}
+
+impl TypeCodec for Uuid {
+    fn encode(&self, writer: &mut impl Write) -> Result<(), CodecError> {
+        write_all_counted(writer, &self.0.into_bytes(), CodecKind::Uuid, 0)
+    }
+
+    fn decode(reader: &mut impl Read) -> Result<Self, CodecError> {
+        let mut bytes = [0; 16];
+        read_exact_counted(reader, &mut bytes, CodecKind::Uuid, 0)?;
+        Ok(Self::from_bytes(bytes))
+    }
+}
