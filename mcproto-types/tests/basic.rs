@@ -7,7 +7,7 @@ use mcproto_codec::error::{
 };
 use mcproto_types::{
     TypeCodec,
-    basic::{Boolean, Byte, Int, Long, Short, UnsignedByte, UnsignedShort},
+    basic::{Boolean, Byte, Int, Long, Short, UnsignedByte, UnsignedShort, VarInt, VarLong},
 };
 
 macro_rules! codec_case {
@@ -86,6 +86,45 @@ codec_case!(
     [0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]
 );
 
+codec_case!(varint_zero, VarInt, 0, [0x00]);
+codec_case!(varint_one, VarInt, 1, [0x01]);
+codec_case!(varint_two_byte_min, VarInt, 128, [0x80, 0x01]);
+codec_case!(varint_minecraft_port, VarInt, 25565, [0xdd, 0xc7, 0x01]);
+codec_case!(
+    varint_negative_one,
+    VarInt,
+    -1,
+    [0xff, 0xff, 0xff, 0xff, 0x0f]
+);
+codec_case!(
+    varint_i32_min,
+    VarInt,
+    i32::MIN,
+    [0x80, 0x80, 0x80, 0x80, 0x08]
+);
+
+codec_case!(varlong_zero, VarLong, 0, [0x00]);
+codec_case!(varlong_one, VarLong, 1, [0x01]);
+codec_case!(varlong_two_byte_min, VarLong, 128, [0x80, 0x01]);
+codec_case!(
+    varlong_i64_max,
+    VarLong,
+    i64::MAX,
+    [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f]
+);
+codec_case!(
+    varlong_negative_one,
+    VarLong,
+    -1,
+    [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01]
+);
+codec_case!(
+    varlong_i64_min,
+    VarLong,
+    i64::MIN,
+    [0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x01]
+);
+
 #[test]
 fn boolean_rejects_non_boolean_values() {
     for value in [0x02, 0x7f, 0xff] {
@@ -161,6 +200,8 @@ eof_case!(
     [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
     7
 );
+eof_case!(varint_eof, VarInt, VarInt, [], 0);
+eof_case!(varlong_eof, VarLong, VarLong, [], 0);
 
 struct FailingReader;
 
@@ -195,6 +236,8 @@ read_error_case!(short_read_error, Short, Short);
 read_error_case!(unsigned_short_read_error, UnsignedShort, UnsignedShort);
 read_error_case!(int_read_error, Int, Int);
 read_error_case!(long_read_error, Long, Long);
+read_error_case!(varint_read_error, VarInt, VarInt);
+read_error_case!(varlong_read_error, VarLong, VarLong);
 
 struct FailingWriter;
 
@@ -233,6 +276,8 @@ write_error_case!(short_write_error, Short(0), Short);
 write_error_case!(unsigned_short_write_error, UnsignedShort(0), UnsignedShort);
 write_error_case!(int_write_error, Int(0), Int);
 write_error_case!(long_write_error, Long(0), Long);
+write_error_case!(varint_write_error, VarInt(0), VarInt);
+write_error_case!(varlong_write_error, VarLong(0), VarLong);
 
 struct PartialErrorReader {
     bytes: &'static [u8],

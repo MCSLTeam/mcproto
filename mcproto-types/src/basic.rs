@@ -1,13 +1,14 @@
 //! Basic Minecraft protocol types and their wire encodings.
 //!
-//! This module includes primitive numeric values, booleans, length-prefixed
-//! strings, and resource identifiers.
+//! This module includes primitive numeric values, booleans, variable-length
+//! integers, length-prefixed strings, and resource identifiers.
 
 use crate::TypeCodec;
 use mcproto_codec::{
     error::{CodecError, CodecKind, CodecOperation, InvalidEncodingReason},
     io::{read_exact_counted, write_all_counted},
     varint::{VarIntRead, VarIntWrite},
+    varlong::{VarLongRead, VarLongWrite},
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 use std::{
@@ -451,3 +452,76 @@ impl fmt::Display for InvalidIdentifier {
 }
 
 impl std::error::Error for InvalidIdentifier {}
+
+
+/// A variable-length two's-complement signed 32-bit integer.
+///
+/// VarInts use one to five bytes on the wire. Each byte carries seven payload
+/// bits; the most-significant bit is set on every byte except the last.
+///
+/// # Examples
+///
+/// ```
+/// use mcproto_types::{TypeCodec, basic::VarInt};
+///
+/// let mut encoded = Vec::new();
+/// VarInt(25565).encode(&mut encoded)?;
+/// assert_eq!(encoded, [0xdd, 0xc7, 0x01]);
+///
+/// let mut input = encoded.as_slice();
+/// assert_eq!(VarInt::decode(&mut input)?, VarInt(25565));
+/// assert!(input.is_empty());
+/// # Ok::<(), mcproto_codec::error::CodecError>(())
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct VarInt(
+    /// The integer value.
+    pub i32,
+);
+
+impl TypeCodec for VarInt {
+    fn encode(&self, writer: &mut impl Write) -> Result<(), CodecError> {
+        writer.write_varint(self.0)
+    }
+
+    fn decode(reader: &mut impl Read) -> Result<Self, CodecError> {
+        reader.read_varint().map(Self)
+    }
+}
+
+/// A variable-length two's-complement signed 64-bit integer.
+///
+/// VarLongs use one to ten bytes on the wire. Each byte carries seven payload
+/// bits; the most-significant bit is set on every byte except the last.
+///
+/// # Examples
+///
+/// ```
+/// use mcproto_types::{TypeCodec, basic::VarLong};
+///
+/// let mut encoded = Vec::new();
+/// VarLong(9_223_372_036_854_775_000).encode(&mut encoded)?;
+///
+/// let mut input = encoded.as_slice();
+/// assert_eq!(
+///     VarLong::decode(&mut input)?,
+///     VarLong(9_223_372_036_854_775_000),
+/// );
+/// assert!(input.is_empty());
+/// # Ok::<(), mcproto_codec::error::CodecError>(())
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct VarLong(
+    /// The integer value.
+    pub i64,
+);
+
+impl TypeCodec for VarLong {
+    fn encode(&self, writer: &mut impl Write) -> Result<(), CodecError> {
+        writer.write_varlong(self.0)
+    }
+
+    fn decode(reader: &mut impl Read) -> Result<Self, CodecError> {
+        reader.read_varlong().map(Self)
+    }
+}
