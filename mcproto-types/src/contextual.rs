@@ -1,7 +1,7 @@
 //! Context and optional protocol values whose wire representation depends on
 //! their enclosing packet or data structure.
 
-use crate::{ContextualCodec, TypeCodec};
+use crate::{ContextualCodec, TypeCodec, basic::Boolean};
 use mcproto_codec::error::{CodecError, CodecKind, CodecOperation, InvalidEncodingReason};
 
 /// External information required to encode or decode a contextual value.
@@ -187,5 +187,120 @@ where
         } else {
             Ok(Self::none())
         }
+    }
+}
+
+/// An optional value prefixed by a boolean presence marker.
+///
+/// The wire format is a [`Boolean`] followed by `T` when the boolean is true:
+///
+/// ```text
+/// Boolean(is present) + (is present ? T : nothing)
+/// ```
+///
+/// Unlike [`Optional<T>`], this type implements [`TypeCodec`] because its wire
+/// representation contains its own presence marker. The marker is `0x01`
+/// when the wrapped value is [`Some`](Option::Some), and `0x00` when it is
+/// [`None`](Option::None).
+///
+/// # Examples
+///
+/// ```
+/// use mcproto_types::{TypeCodec, basic::UnsignedByte};
+/// use mcproto_types::contextual::PrefixedOptional;
+///
+/// let value = PrefixedOptional::some(UnsignedByte(0xab));
+/// let mut encoded = Vec::new();
+/// value.encode(&mut encoded)?;
+/// assert_eq!(encoded, [0x01, 0xab]);
+///
+/// let mut input = encoded.as_slice();
+/// assert_eq!(PrefixedOptional::<UnsignedByte>::decode(&mut input)?, value);
+/// assert!(input.is_empty());
+/// # Ok::<(), mcproto_codec::error::CodecError>(())
+/// ```
+#[repr(transparent)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub struct PrefixedOptional<T>(
+    /// The optional value and its context-controlled encoding behavior.
+    pub Optional<T>,
+);
+
+impl<T> PrefixedOptional<T> {
+    /// Creates a prefixed optional containing `value`.
+    #[must_use]
+    pub const fn some(value: T) -> Self {
+        Self(Optional::some(value))
+    }
+
+    /// Creates a prefixed optional with no value.
+    #[must_use]
+    pub const fn none() -> Self {
+        Self(Optional::none())
+    }
+
+    /// Returns whether the prefixed optional contains a value.
+    #[must_use]
+    pub const fn is_some(&self) -> bool {
+        self.0.is_some()
+    }
+
+    /// Returns whether the prefixed optional contains no value.
+    #[must_use]
+    pub const fn is_none(&self) -> bool {
+        self.0.is_none()
+    }
+
+    /// Returns the contained value by reference, if present.
+    #[must_use]
+    pub const fn as_ref(&self) -> PrefixedOptional<&T> {
+        PrefixedOptional(self.0.as_ref())
+    }
+
+    /// Extracts the wrapped [`Option<T>`].
+    #[must_use]
+    pub fn into_option(self) -> Option<T> {
+        self.0.into_option()
+    }
+}
+
+impl<T> From<Option<T>> for PrefixedOptional<T> {
+    fn from(value: Option<T>) -> Self {
+        Self(value.into())
+    }
+}
+
+impl<T> From<Optional<T>> for PrefixedOptional<T> {
+    fn from(value: Optional<T>) -> Self {
+        Self(value)
+    }
+}
+
+impl<T> From<PrefixedOptional<T>> for Option<T> {
+    fn from(value: PrefixedOptional<T>) -> Self {
+        value.into_option()
+    }
+}
+
+impl<T> TypeCodec for PrefixedOptional<T>
+where
+    T: TypeCodec,
+{
+    fn encode(&self, writer: &mut impl std::io::Write) -> Result<(), CodecError> {
+        let context = Context::new(self.is_some());
+        Boolean(self.is_some())
+            .encode(writer)
+            .map_err(|error| error.with_context(CodecKind::PrefixedOptional))?;
+        self.0
+            .encode_with_context(writer, &context)
+            .map_err(|error| error.with_context(CodecKind::PrefixedOptional))
+    }
+
+    fn decode(reader: &mut impl std::io::Read) -> Result<Self, CodecError> {
+        let present = Boolean::decode(reader)
+            .map_err(|error| error.with_context(CodecKind::PrefixedOptional))?;
+        Optional::decode_with_context(reader, &Context::new(present.0))
+            .map(Self)
+            .map_err(|error| error.with_context(CodecKind::PrefixedOptional))
     }
 }

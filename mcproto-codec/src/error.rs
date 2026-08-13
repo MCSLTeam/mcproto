@@ -63,6 +63,8 @@ pub enum CodecKind {
     FixedBitSet,
     /// A value whose presence is determined by an enclosing protocol context.
     Optional,
+    /// An optional value prefixed by an encoded boolean presence marker.
+    PrefixedOptional,
     /// A UTF-8 string prefixed by its byte length as a VarInt.
     ///
     /// The protocol limits both the UTF-8 payload size and the number of UTF-16
@@ -119,6 +121,7 @@ impl fmt::Display for CodecKind {
             Self::BitSet => formatter.write_str("BitSet"),
             Self::FixedBitSet => formatter.write_str("Fixed BitSet"),
             Self::Optional => formatter.write_str("Optional"),
+            Self::PrefixedOptional => formatter.write_str("Prefixed Optional"),
             Self::String => formatter.write_str("String"),
             Self::Identifier => formatter.write_str("Identifier"),
             Self::TextComponent => formatter.write_str("TextComponent"),
