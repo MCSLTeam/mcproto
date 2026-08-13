@@ -57,6 +57,8 @@ pub enum CodecKind {
     Angle,
     /// A 128-bit universally unique identifier.
     Uuid,
+    /// A length-prefixed bit set of packed 64-bit words.
+    BitSet,
     /// A UTF-8 string prefixed by its byte length as a VarInt.
     ///
     /// The protocol limits both the UTF-8 payload size and the number of UTF-16
@@ -110,6 +112,7 @@ impl fmt::Display for CodecKind {
             Self::Position => formatter.write_str("Position"),
             Self::Angle => formatter.write_str("Angle"),
             Self::Uuid => formatter.write_str("UUID"),
+            Self::BitSet => formatter.write_str("BitSet"),
             Self::String => formatter.write_str("String"),
             Self::Identifier => formatter.write_str("Identifier"),
             Self::TextComponent => formatter.write_str("TextComponent"),

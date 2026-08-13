@@ -713,3 +713,96 @@ impl TypeCodec for Uuid {
         Ok(Self::from_bytes(bytes))
     }
 }
+
+/// A length-prefixed bit set.
+///
+/// The wire representation is a VarInt length prefix followed by that many
+/// 64-bit words, encoded in big-endian order. The `i`th bit is set when:
+///
+/// ```text
+/// (data[i / 64] & (1 << (i % 64))) != 0
+/// ```
+///
+/// # Examples
+///
+/// ```
+/// use mcproto_types::{TypeCodec, basic::BitSet};
+///
+/// let bits = BitSet(vec![0b0000_0101]);
+///
+/// let mut encoded = Vec::new();
+/// bits.encode(&mut encoded)?;
+/// assert_eq!(
+///     encoded,
+///     [0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05]
+/// );
+///
+/// let mut input = encoded.as_slice();
+/// assert_eq!(BitSet::decode(&mut input)?, bits);
+/// assert!(input.is_empty());
+///
+/// assert!(bits.contains(0));
+/// assert!(!bits.contains(1));
+/// assert!(bits.contains(2));
+/// # Ok::<(), mcproto_codec::error::CodecError>(())
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub struct BitSet(
+    /// The packed 64-bit words, in little-endian bit order.
+    pub Vec<u64>,
+);
+
+impl BitSet {
+    /// Returns whether the bit at `index` is set.
+    pub fn contains(&self, index: usize) -> bool {
+        match self.0.get(index / 64) {
+            Some(word) => (word & (1 << (index % 64))) != 0,
+            None => false,
+        }
+    }
+}
+
+impl TypeCodec for BitSet {
+    fn encode(&self, writer: &mut impl Write) -> Result<(), CodecError> {
+        let prefix_size = writer
+            .write_varint_with_size(self.0.len() as i32)
+            .map_err(|error| error.with_context(CodecKind::BitSet))?;
+
+        let mut bytes_processed = prefix_size;
+        for word in &self.0 {
+            write_all_counted(
+                writer,
+                &word.to_be_bytes(),
+                CodecKind::BitSet,
+                bytes_processed,
+            )?;
+            bytes_processed += 8;
+        }
+
+        Ok(())
+    }
+
+    fn decode(reader: &mut impl Read) -> Result<Self, CodecError> {
+        let (length, prefix_size) = reader
+            .read_varint_with_size()
+            .map_err(|error| error.with_context(CodecKind::BitSet))?;
+        let length = usize::try_from(length).map_err(|_| {
+            CodecError::invalid_encoding(
+                CodecKind::BitSet,
+                prefix_size,
+                InvalidEncodingReason::NegativeLength { value: length },
+            )
+        })?;
+
+        let mut words = Vec::with_capacity(length);
+        let mut bytes_processed = prefix_size;
+        for _ in 0..length {
+            let mut bytes = [0; 8];
+            read_exact_counted(reader, &mut bytes, CodecKind::BitSet, bytes_processed)?;
+            words.push(u64::from_be_bytes(bytes));
+            bytes_processed += 8;
+        }
+
+        Ok(Self(words))
+    }
+}
