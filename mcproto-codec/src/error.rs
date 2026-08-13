@@ -61,6 +61,8 @@ pub enum CodecKind {
     BitSet,
     /// A fixed-length bit set of packed bytes.
     FixedBitSet,
+    /// A value whose presence is determined by an enclosing protocol context.
+    Optional,
     /// A UTF-8 string prefixed by its byte length as a VarInt.
     ///
     /// The protocol limits both the UTF-8 payload size and the number of UTF-16
@@ -116,6 +118,7 @@ impl fmt::Display for CodecKind {
             Self::Uuid => formatter.write_str("UUID"),
             Self::BitSet => formatter.write_str("BitSet"),
             Self::FixedBitSet => formatter.write_str("Fixed BitSet"),
+            Self::Optional => formatter.write_str("Optional"),
             Self::String => formatter.write_str("String"),
             Self::Identifier => formatter.write_str("Identifier"),
             Self::TextComponent => formatter.write_str("TextComponent"),
@@ -187,6 +190,13 @@ pub enum InvalidEncodingReason {
         /// The actual number of packed bytes.
         actual: usize,
     },
+    /// An optional value does not agree with its externally supplied context.
+    OptionalValueMismatch {
+        /// Whether the context says that the value is present on the wire.
+        context_present: bool,
+        /// Whether the value held by the wrapper is present in memory.
+        value_present: bool,
+    },
     /// The data contains an invalid UTF-8 sequence.
     InvalidUtf8 {
         /// The byte offset in the UTF-8 payload up to which the data is valid.
@@ -237,6 +247,13 @@ impl fmt::Display for InvalidEncodingReason {
             Self::InvalidFixedBitSetLength { expected, actual } => write!(
                 formatter,
                 "fixed bit set requires {expected} packed bytes, got {actual}"
+            ),
+            Self::OptionalValueMismatch {
+                context_present,
+                value_present,
+            } => write!(
+                formatter,
+                "optional value presence ({value_present}) does not match context ({context_present})"
             ),
             Self::InvalidUtf8 {
                 valid_up_to,

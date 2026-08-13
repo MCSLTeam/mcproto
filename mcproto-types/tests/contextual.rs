@@ -1,37 +1,11 @@
 //! Integration tests for contextual protocol codecs.
 
-use mcproto_codec::error::CodecError;
-use mcproto_types::{ContextualCodec, TypeCodec, basic::UnsignedByte, contextual::Context};
-
-#[derive(Debug, PartialEq, Eq)]
-struct OptionalByte(Option<UnsignedByte>);
-
-impl ContextualCodec for OptionalByte {
-    fn encode_with_context(
-        &self,
-        writer: &mut impl std::io::Write,
-        context: &Context,
-    ) -> Result<(), CodecError> {
-        if context.is_present() {
-            self.0
-                .as_ref()
-                .expect("the test value must match its context")
-                .encode(writer)?;
-        }
-        Ok(())
-    }
-
-    fn decode_with_context(
-        reader: &mut impl std::io::Read,
-        context: &Context,
-    ) -> Result<Self, CodecError> {
-        if context.is_present() {
-            Ok(Self(Some(UnsignedByte::decode(reader)?)))
-        } else {
-            Ok(Self(None))
-        }
-    }
-}
+use mcproto_codec::error::{CodecErrorKind, CodecKind, CodecOperation, InvalidEncodingReason};
+use mcproto_types::{
+    ContextualCodec,
+    basic::{UnsignedByte, VarInt},
+    contextual::{Context, Optional},
+};
 
 #[test]
 fn context_constructors_express_presence() {
@@ -46,7 +20,7 @@ fn context_constructors_express_presence() {
 
 #[test]
 fn present_context_encodes_and_decodes_the_value() {
-    let value = OptionalByte(Some(UnsignedByte(0xab)));
+    let value = Optional::some(UnsignedByte(0xab));
     let mut encoded = Vec::new();
     value
         .encode_with_context(&mut encoded, &Context::present())
@@ -55,7 +29,7 @@ fn present_context_encodes_and_decodes_the_value() {
 
     let mut input = encoded.as_slice();
     assert_eq!(
-        OptionalByte::decode_with_context(&mut input, &Context::present()).unwrap(),
+        Optional::<UnsignedByte>::decode_with_context(&mut input, &Context::present()).unwrap(),
         value
     );
     assert!(input.is_empty());
@@ -63,7 +37,7 @@ fn present_context_encodes_and_decodes_the_value() {
 
 #[test]
 fn absent_context_consumes_and_produces_no_bytes() {
-    let value = OptionalByte(None);
+    let value = Optional::<UnsignedByte>::none();
     let mut encoded = Vec::new();
     value
         .encode_with_context(&mut encoded, &Context::absent())
@@ -72,8 +46,64 @@ fn absent_context_consumes_and_produces_no_bytes() {
 
     let mut input = [0xab].as_slice();
     assert_eq!(
-        OptionalByte::decode_with_context(&mut input, &Context::absent()).unwrap(),
+        Optional::<UnsignedByte>::decode_with_context(&mut input, &Context::absent()).unwrap(),
         value
     );
     assert_eq!(input, [0xab]);
+}
+
+#[test]
+fn generic_implementation_supports_any_type_codec() {
+    let value = Optional::some(VarInt(25565));
+    let mut encoded = Vec::new();
+    value
+        .encode_with_context(&mut encoded, &Context::present())
+        .unwrap();
+    assert_eq!(encoded, [0xdd, 0xc7, 0x01]);
+}
+
+#[test]
+fn encoding_rejects_value_context_mismatches() {
+    let cases = [
+        (
+            Optional::<UnsignedByte>::none(),
+            Context::present(),
+            InvalidEncodingReason::OptionalValueMismatch {
+                context_present: true,
+                value_present: false,
+            },
+        ),
+        (
+            Optional::some(UnsignedByte(1)),
+            Context::absent(),
+            InvalidEncodingReason::OptionalValueMismatch {
+                context_present: false,
+                value_present: true,
+            },
+        ),
+    ];
+
+    for (value, context, reason) in cases {
+        let error = value
+            .encode_with_context(&mut Vec::new(), &context)
+            .unwrap_err();
+        assert_eq!(error.kind(), CodecErrorKind::InvalidEncoding(reason));
+        assert_eq!(error.codec(), CodecKind::Optional);
+        assert_eq!(error.operation(), CodecOperation::Write);
+        assert_eq!(error.bytes_processed(), 0);
+    }
+}
+
+#[test]
+fn inner_errors_keep_their_codec_and_optional_context() {
+    let mut input = [0x02].as_slice();
+    let error = Optional::<mcproto_types::basic::Boolean>::decode_with_context(
+        &mut input,
+        &Context::present(),
+    )
+    .unwrap_err();
+
+    assert_eq!(error.codec(), CodecKind::Boolean);
+    assert_eq!(error.contexts(), &[CodecKind::Optional]);
+    assert_eq!(error.operation(), CodecOperation::Read);
 }
