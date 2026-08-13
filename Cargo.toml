@@ -3,7 +3,7 @@ resolver = "3"
 members = ["mcproto", "mcproto-codec", "mcproto-oauth", "mcproto-types"]
 
 [workspace.package]
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 authors = ["MCSLTeam <services@mcsl.com.cn>"]
 license = "MIT"
@@ -13,9 +13,9 @@ repository = "https://github.com/MCSLTeam/mcproto"
 fastnbt = "2.6.3"
 base64 = "0.23.1"
 getrandom = "0.4.3"
-mcproto-codec = { version = "0.3.0", path = "mcproto-codec" }
-mcproto-oauth = { version = "0.3.0", path = "mcproto-oauth" }
-mcproto-types = { version = "0.3.0", path = "mcproto-types" }
+mcproto-codec = { version = "0.4.0", path = "mcproto-codec" }
+mcproto-oauth = { version = "0.4.0", path = "mcproto-oauth" }
+mcproto-types = { version = "0.4.0", path = "mcproto-types" }
 reqwest = { version = "0.13.4", default-features = false, features = ["blocking", "json", "rustls", "form"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "1.0.151", features = ["unbounded_depth"] }
