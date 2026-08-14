@@ -65,6 +65,8 @@ pub enum CodecKind {
     Optional,
     /// An optional value prefixed by an encoded boolean presence marker.
     PrefixedOptional,
+    /// A sequence whose element count is supplied by protocol context.
+    Array,
     /// A UTF-8 string prefixed by its byte length as a VarInt.
     ///
     /// The protocol limits both the UTF-8 payload size and the number of UTF-16
@@ -122,6 +124,7 @@ impl fmt::Display for CodecKind {
             Self::FixedBitSet => formatter.write_str("Fixed BitSet"),
             Self::Optional => formatter.write_str("Optional"),
             Self::PrefixedOptional => formatter.write_str("Prefixed Optional"),
+            Self::Array => formatter.write_str("Array"),
             Self::String => formatter.write_str("String"),
             Self::Identifier => formatter.write_str("Identifier"),
             Self::TextComponent => formatter.write_str("TextComponent"),
@@ -150,6 +153,9 @@ impl fmt::Display for CodecOperation {
     }
 }
 /// Describes why encoded protocol data is invalid.
+///
+/// Some reasons describe a mismatch between a codec and the context supplied
+/// by its enclosing packet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum InvalidEncodingReason {
@@ -200,6 +206,18 @@ pub enum InvalidEncodingReason {
         /// Whether the value held by the wrapper is present in memory.
         value_present: bool,
     },
+    /// A contextual codec was used without the information it requires.
+    MissingContext {
+        /// The kind of information that was not supplied.
+        required: ContextRequirement,
+    },
+    /// The number of array values does not match the contextual length.
+    ArrayLengthMismatch {
+        /// The element count required by the context.
+        expected: usize,
+        /// The element count held by the array.
+        actual: usize,
+    },
     /// The data contains an invalid UTF-8 sequence.
     InvalidUtf8 {
         /// The byte offset in the UTF-8 payload up to which the data is valid.
@@ -220,6 +238,29 @@ pub enum InvalidEncodingReason {
         tag: u8,
     },
 }
+
+/// Identifies information required by a contextual codec.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum ContextRequirement {
+    /// Whether a value is present on the wire.
+    Presence,
+    /// The number of elements in a contextual array.
+    Length,
+    /// A context for an individual array element.
+    ElementContext,
+}
+
+impl fmt::Display for ContextRequirement {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Presence => formatter.write_str("presence"),
+            Self::Length => formatter.write_str("array length"),
+            Self::ElementContext => formatter.write_str("array element context"),
+        }
+    }
+}
+
 /// Formats an invalid encoding reason as a diagnostic message.
 impl fmt::Display for InvalidEncodingReason {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -257,6 +298,13 @@ impl fmt::Display for InvalidEncodingReason {
             } => write!(
                 formatter,
                 "optional value presence ({value_present}) does not match context ({context_present})"
+            ),
+            Self::MissingContext { required } => {
+                write!(formatter, "missing required codec context: {required}")
+            }
+            Self::ArrayLengthMismatch { expected, actual } => write!(
+                formatter,
+                "array contains {actual} elements, but context requires {expected}"
             ),
             Self::InvalidUtf8 {
                 valid_up_to,

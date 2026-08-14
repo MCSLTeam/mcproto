@@ -66,3 +66,31 @@ pub trait TypeCodec {
     where
         Self: Sized;
 }
+
+/// Adapts a context-independent [`TypeCodec`] to [`ContextualCodec`].
+///
+/// The supplied context is ignored because the value's wire representation is
+/// already complete without external information. Context-sensitive types
+/// should implement [`ContextualCodec`] directly instead of [`TypeCodec`].
+impl<T> ContextualCodec for T
+where
+    T: TypeCodec,
+{
+    fn encode_with_context(
+        &self,
+        writer: &mut impl std::io::Write,
+        _context: &contextual::Context,
+    ) -> Result<(), mcproto_codec::error::CodecError> {
+        self.encode(writer)
+    }
+
+    fn decode_with_context(
+        reader: &mut impl std::io::Read,
+        _context: &contextual::Context,
+    ) -> Result<Self, mcproto_codec::error::CodecError>
+    where
+        Self: Sized,
+    {
+        Self::decode(reader)
+    }
+}

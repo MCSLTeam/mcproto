@@ -2,14 +2,16 @@
 //! their enclosing packet or data structure.
 
 use crate::{ContextualCodec, TypeCodec, basic::Boolean};
-use mcproto_codec::error::{CodecError, CodecKind, CodecOperation, InvalidEncodingReason};
+use mcproto_codec::error::{
+    CodecError, CodecKind, CodecOperation, ContextRequirement, InvalidEncodingReason,
+};
 
 /// External information required to encode or decode a contextual value.
 ///
-/// The initial context records whether the current field is present. This is
-/// intended for protocol fields described as `Optional X`, where no presence
-/// marker is encoded and the field's presence must be known from its enclosing
-/// packet or data structure.
+/// The context can record whether the current field is present, the length of
+/// an array field, and child contexts for array elements. This supports
+/// protocol fields described as `Optional X` or `Array of X`, where the
+/// required information is known from the enclosing packet or data structure.
 ///
 /// A `Context` does not consume or produce any bytes. The enclosing codec must
 /// derive it from already-known protocol state and pass it to
@@ -25,23 +27,37 @@ use mcproto_codec::error::{CodecError, CodecKind, CodecOperation, InvalidEncodin
 /// assert!(context.is_present());
 /// assert!(!Context::absent().is_present());
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Context {
-    present: bool,
+    presence: Option<bool>,
+    array_length: Option<usize>,
+    element_contexts: Option<Box<[Context]>>,
 }
 
 impl Context {
     /// Context for a field that is present on the wire.
-    pub const PRESENT: Self = Self::new(true);
+    pub const PRESENT: Self = Self {
+        presence: Some(true),
+        array_length: None,
+        element_contexts: None,
+    };
 
     /// Context for a field that occupies zero bytes on the wire.
-    pub const ABSENT: Self = Self::new(false);
+    pub const ABSENT: Self = Self {
+        presence: Some(false),
+        array_length: None,
+        element_contexts: None,
+    };
 
     /// Creates a context from a presence condition determined by the enclosing
     /// protocol structure.
     #[must_use]
     pub const fn new(present: bool) -> Self {
-        Self { present }
+        Self {
+            presence: Some(present),
+            array_length: None,
+            element_contexts: None,
+        }
     }
 
     /// Creates context for a field that is present on the wire.
@@ -56,10 +72,229 @@ impl Context {
         Self::ABSENT
     }
 
+    /// Creates context containing the number of elements in an array field.
+    #[must_use]
+    pub const fn for_array_length(length: usize) -> Self {
+        Self {
+            presence: None,
+            array_length: Some(length),
+            element_contexts: None,
+        }
+    }
+
+    /// Adds an array length to this context, preserving any presence state.
+    #[must_use]
+    pub fn with_array_length(self, length: usize) -> Self {
+        Self {
+            presence: self.presence,
+            array_length: Some(length),
+            element_contexts: self.element_contexts,
+        }
+    }
+
+    /// Adds a child context for each array element.
+    ///
+    /// When child contexts are not supplied, an array passes its own context
+    /// to every element. Supplying child contexts is required when different
+    /// elements have different contextual metadata or when arrays are nested.
+    #[must_use]
+    pub fn with_element_contexts(self, contexts: impl IntoIterator<Item = Context>) -> Self {
+        Self {
+            presence: self.presence,
+            array_length: self.array_length,
+            element_contexts: Some(contexts.into_iter().collect()),
+        }
+    }
+
+    /// Returns the explicitly supplied presence state, if one exists.
+    #[must_use]
+    pub const fn presence(&self) -> Option<bool> {
+        self.presence
+    }
+
+    /// Returns the contextual array length, if one exists.
+    #[must_use]
+    pub const fn array_length(&self) -> Option<usize> {
+        self.array_length
+    }
+
+    fn element_context(
+        &self,
+        index: usize,
+        operation: CodecOperation,
+    ) -> Result<&Context, CodecError> {
+        match &self.element_contexts {
+            Some(contexts) => contexts.get(index).ok_or_else(|| {
+                missing_context(
+                    CodecKind::Array,
+                    operation,
+                    ContextRequirement::ElementContext,
+                )
+            }),
+            None => Ok(self),
+        }
+    }
+
     /// Returns whether the contextual field is present on the wire.
     #[must_use]
     pub const fn is_present(&self) -> bool {
-        self.present
+        matches!(self.presence, Some(true))
+    }
+}
+
+fn missing_context(
+    codec: CodecKind,
+    operation: CodecOperation,
+    required: ContextRequirement,
+) -> CodecError {
+    CodecError::invalid_encoding_for_operation(
+        codec,
+        operation,
+        0,
+        InvalidEncodingReason::MissingContext { required },
+    )
+}
+
+/// A sequence of protocol values whose element count is supplied by context.
+///
+/// `Array<T>` has no wire length prefix. The enclosing packet must supply the
+/// number of elements through [`Context::for_array_length`] or
+/// [`Context::with_array_length`]. Exactly that many values are encoded or
+/// decoded. A zero length therefore produces and consumes zero bytes.
+///
+/// The total byte size is not necessarily `length * fixed_size`: if `T` has a
+/// variable-size encoding, each element may occupy a different number of
+/// bytes.
+///
+/// # Examples
+///
+/// ```
+/// use mcproto_types::{ContextualCodec, TypeCodec, basic::UnsignedByte};
+/// use mcproto_types::contextual::{Array, Context};
+///
+/// let values = Array(vec![UnsignedByte(1), UnsignedByte(2)]);
+/// let mut encoded = Vec::new();
+/// values.encode_with_context(&mut encoded, &Context::for_array_length(2))?;
+/// assert_eq!(encoded, [1, 2]);
+///
+/// let mut input = encoded.as_slice();
+/// assert_eq!(
+///     Array::<UnsignedByte>::decode_with_context(
+///         &mut input,
+///         &Context::for_array_length(2),
+///     )?,
+///     values,
+/// );
+/// # Ok::<(), mcproto_codec::error::CodecError>(())
+/// ```
+#[repr(transparent)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub struct Array<T>(
+    /// The array elements.
+    pub Vec<T>,
+);
+
+impl<T> Array<T> {
+    /// Creates an array from its elements.
+    #[must_use]
+    pub const fn new(values: Vec<T>) -> Self {
+        Self(values)
+    }
+
+    /// Returns the number of elements.
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Returns whether the array contains no elements.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Returns the elements as a slice.
+    #[must_use]
+    pub const fn as_slice(&self) -> &[T] {
+        self.0.as_slice()
+    }
+
+    /// Extracts the underlying vector.
+    #[must_use]
+    pub fn into_vec(self) -> Vec<T> {
+        self.0
+    }
+}
+
+impl<T> From<Vec<T>> for Array<T> {
+    fn from(values: Vec<T>) -> Self {
+        Self(values)
+    }
+}
+
+impl<T> From<Array<T>> for Vec<T> {
+    fn from(values: Array<T>) -> Self {
+        values.0
+    }
+}
+
+impl<T> ContextualCodec for Array<T>
+where
+    T: ContextualCodec,
+{
+    fn encode_with_context(
+        &self,
+        writer: &mut impl std::io::Write,
+        context: &Context,
+    ) -> Result<(), CodecError> {
+        let expected = context.array_length().ok_or_else(|| {
+            missing_context(
+                CodecKind::Array,
+                CodecOperation::Write,
+                ContextRequirement::Length,
+            )
+        })?;
+        if self.len() != expected {
+            return Err(CodecError::invalid_encoding_for_operation(
+                CodecKind::Array,
+                CodecOperation::Write,
+                0,
+                InvalidEncodingReason::ArrayLengthMismatch {
+                    expected,
+                    actual: self.len(),
+                },
+            ));
+        }
+
+        for (index, value) in self.0.iter().enumerate() {
+            let element_context = context.element_context(index, CodecOperation::Write)?;
+            value
+                .encode_with_context(writer, element_context)
+                .map_err(|error| error.with_context(CodecKind::Array))?;
+        }
+        Ok(())
+    }
+
+    fn decode_with_context(
+        reader: &mut impl std::io::Read,
+        context: &Context,
+    ) -> Result<Self, CodecError> {
+        let length = context.array_length().ok_or_else(|| {
+            missing_context(
+                CodecKind::Array,
+                CodecOperation::Read,
+                ContextRequirement::Length,
+            )
+        })?;
+        let mut values = Vec::with_capacity(length);
+        for index in 0..length {
+            let element_context = context.element_context(index, CodecOperation::Read)?;
+            values.push(
+                T::decode_with_context(reader, element_context)
+                    .map_err(|error| error.with_context(CodecKind::Array))?,
+            );
+        }
+        Ok(Self(values))
     }
 }
 
@@ -67,8 +302,8 @@ impl Context {
 ///
 /// `Optional<T>` stores an [`Option<T>`], but it does not encode a presence
 /// marker. When the supplied [`Context`] is present, the inner `T` is encoded
-/// exactly as its [`TypeCodec`] implementation specifies. When the context is
-/// absent, the value occupies zero bytes.
+/// using its [`ContextualCodec`] implementation. When the context is absent,
+/// the value occupies zero bytes.
 ///
 /// The caller must derive the context from the enclosing packet or data
 /// structure. This type therefore implements [`ContextualCodec`], not
@@ -152,16 +387,23 @@ impl<T> From<Optional<T>> for Option<T> {
 
 impl<T> ContextualCodec for Optional<T>
 where
-    T: TypeCodec,
+    T: ContextualCodec,
 {
     fn encode_with_context(
         &self,
         writer: &mut impl std::io::Write,
         context: &Context,
     ) -> Result<(), CodecError> {
-        match (context.is_present(), self.0.as_ref()) {
+        let context_present = context.presence().ok_or_else(|| {
+            missing_context(
+                CodecKind::Optional,
+                CodecOperation::Write,
+                ContextRequirement::Presence,
+            )
+        })?;
+        match (context_present, self.0.as_ref()) {
             (true, Some(value)) => value
-                .encode(writer)
+                .encode_with_context(writer, context)
                 .map_err(|error| error.with_context(CodecKind::Optional)),
             (false, None) => Ok(()),
             (context_present, value) => Err(CodecError::invalid_encoding_for_operation(
@@ -180,12 +422,17 @@ where
         reader: &mut impl std::io::Read,
         context: &Context,
     ) -> Result<Self, CodecError> {
-        if context.is_present() {
-            T::decode(reader)
-                .map(|value| Self::some(value))
-                .map_err(|error| error.with_context(CodecKind::Optional))
-        } else {
-            Ok(Self::none())
+        match context.presence().ok_or_else(|| {
+            missing_context(
+                CodecKind::Optional,
+                CodecOperation::Read,
+                ContextRequirement::Presence,
+            )
+        })? {
+            true => T::decode_with_context(reader, context)
+                .map(Self::some)
+                .map_err(|error| error.with_context(CodecKind::Optional)),
+            false => Ok(Self::none()),
         }
     }
 }
