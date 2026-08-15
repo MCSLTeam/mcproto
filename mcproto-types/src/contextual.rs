@@ -1,7 +1,10 @@
 //! Context and protocol values whose wire representation depends on their
 //! enclosing packet or data structure.
 
-use crate::{ContextualCodec, TypeCodec, basic::Boolean};
+use crate::{
+    ContextualCodec, TypeCodec,
+    basic::{Boolean, Identifier},
+};
 use mcproto_codec::error::{
     CodecError, CodecKind, CodecOperation, ContextRequirement, InvalidEncodingReason,
 };
@@ -816,5 +819,387 @@ where
         Optional::decode_with_context(reader, &Context::new(present.0))
             .map(Self)
             .map_err(|error| error.with_context(CodecKind::PrefixedOptional))
+    }
+}
+
+/// A protocol value represented either by registry ID or by an inline `T`.
+///
+/// The [Minecraft protocol ID or X] wire representation begins with a
+/// [`VarInt`] selector:
+///
+/// - `0` means that a value of type `T` follows inline;
+/// - a positive value `n` refers to registry ID `n - 1` and has no inline
+///   payload.
+///
+/// ```text
+/// VarInt(0) + T              // Inline value
+/// VarInt(registry_id + 1)    // Registry reference
+/// ```
+///
+/// Registry IDs held by this type are the actual zero-based IDs, not their
+/// incremented wire selectors. Valid IDs range from `0` through
+/// `i32::MAX - 1`. The registry itself is implied by the enclosing packet or
+/// field definition; it does not need to be stored in [`Context`] because it
+/// does not affect this value's byte layout.
+///
+/// [Minecraft protocol ID or X]: https://minecraft.wiki/w/Java_Edition_protocol/Packets#ID_or_X
+/// [`VarInt`]: crate::basic::VarInt
+///
+/// # Examples
+///
+/// ```
+/// use mcproto_types::{TypeCodec, basic::UnsignedByte};
+/// use mcproto_types::contextual::IdOr;
+///
+/// let inline = IdOr::inline(UnsignedByte(0xab));
+/// let mut encoded = Vec::new();
+/// inline.encode(&mut encoded)?;
+/// assert_eq!(encoded, [0x00, 0xab]);
+///
+/// let mut input = encoded.as_slice();
+/// assert_eq!(IdOr::<UnsignedByte>::decode(&mut input)?, inline);
+///
+/// let reference = IdOr::<UnsignedByte>::id(4);
+/// let mut encoded = Vec::new();
+/// reference.encode(&mut encoded)?;
+/// assert_eq!(encoded, [0x05]);
+/// # Ok::<(), mcproto_codec::error::CodecError>(())
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum IdOr<T> {
+    /// A zero-based ID in the registry implied by the enclosing field.
+    Id(i32),
+    /// A complete value encoded inline after a zero selector.
+    Inline(T),
+}
+
+impl<T> IdOr<T> {
+    /// Creates a registry reference from its actual zero-based ID.
+    #[must_use]
+    pub const fn id(id: i32) -> Self {
+        Self::Id(id)
+    }
+
+    /// Creates an inline value.
+    #[must_use]
+    pub const fn inline(value: T) -> Self {
+        Self::Inline(value)
+    }
+
+    /// Returns whether this value is a registry reference.
+    #[must_use]
+    pub const fn is_id(&self) -> bool {
+        matches!(self, Self::Id(_))
+    }
+
+    /// Returns whether this value is defined inline.
+    #[must_use]
+    pub const fn is_inline(&self) -> bool {
+        matches!(self, Self::Inline(_))
+    }
+
+    /// Returns the zero-based registry ID, if this is a reference.
+    #[must_use]
+    pub const fn registry_id(&self) -> Option<i32> {
+        match self {
+            Self::Id(id) => Some(*id),
+            Self::Inline(_) => None,
+        }
+    }
+
+    /// Returns the inline value by reference, if present.
+    #[must_use]
+    pub const fn inline_value(&self) -> Option<&T> {
+        match self {
+            Self::Id(_) => None,
+            Self::Inline(value) => Some(value),
+        }
+    }
+
+    /// Borrows the inline value while preserving registry references.
+    #[must_use]
+    pub const fn as_ref(&self) -> IdOr<&T> {
+        match self {
+            Self::Id(id) => IdOr::Id(*id),
+            Self::Inline(value) => IdOr::Inline(value),
+        }
+    }
+
+    /// Extracts the inline value, if present.
+    #[must_use]
+    pub fn into_inline(self) -> Option<T> {
+        match self {
+            Self::Id(_) => None,
+            Self::Inline(value) => Some(value),
+        }
+    }
+}
+
+impl<T> From<T> for IdOr<T> {
+    fn from(value: T) -> Self {
+        Self::Inline(value)
+    }
+}
+
+impl<T> TypeCodec for IdOr<T>
+where
+    T: TypeCodec,
+{
+    fn encode(&self, writer: &mut impl std::io::Write) -> Result<(), CodecError> {
+        match self {
+            Self::Id(id) => {
+                let selector = id.checked_add(1).filter(|_| *id >= 0).ok_or_else(|| {
+                    CodecError::invalid_encoding_for_operation(
+                        CodecKind::IdOr,
+                        CodecOperation::Write,
+                        0,
+                        InvalidEncodingReason::InvalidRegistryId {
+                            value: *id,
+                            max: i32::MAX - 1,
+                        },
+                    )
+                })?;
+                writer
+                    .write_varint(selector)
+                    .map_err(|error| error.with_context(CodecKind::IdOr))
+            }
+            Self::Inline(value) => {
+                writer
+                    .write_varint(0)
+                    .map_err(|error| error.with_context(CodecKind::IdOr))?;
+                value
+                    .encode(writer)
+                    .map_err(|error| error.with_context(CodecKind::IdOr))
+            }
+        }
+    }
+
+    fn decode(reader: &mut impl std::io::Read) -> Result<Self, CodecError> {
+        let (selector, prefix_size) = reader
+            .read_varint_with_size()
+            .map_err(|error| error.with_context(CodecKind::IdOr))?;
+        match selector {
+            0 => T::decode(reader)
+                .map(Self::Inline)
+                .map_err(|error| error.with_context(CodecKind::IdOr)),
+            1.. => Ok(Self::Id(selector - 1)),
+            _ => Err(CodecError::invalid_encoding(
+                CodecKind::IdOr,
+                prefix_size,
+                InvalidEncodingReason::InvalidIdOrSelector { value: selector },
+            )),
+        }
+    }
+}
+
+/// A set of registry IDs represented inline or by reference to a tag.
+///
+/// The registry itself is implied by the enclosing packet or field. The
+/// [Minecraft protocol ID Set] wire representation starts with a [`VarInt`]
+/// type value:
+///
+/// - `0` is followed by an [`Identifier`] naming a registry tag;
+/// - a positive value `n` is followed by `n - 1` registry IDs encoded as
+///   VarInts.
+///
+/// ```text
+/// VarInt(0) + Identifier(tag_name)
+/// VarInt(ids.len() + 1) + VarInt(ids[0]) + ... + VarInt(ids[len - 1])
+/// ```
+///
+/// An empty inline set therefore uses type value `1`. Registry IDs must be
+/// non-negative, and an inline set may contain at most `i32::MAX - 1` IDs.
+///
+/// [Minecraft protocol ID Set]: https://minecraft.wiki/w/Java_Edition_protocol/Packets#ID_Set
+/// [`VarInt`]: crate::basic::VarInt
+///
+/// # Examples
+///
+/// ```
+/// use mcproto_types::{TypeCodec, basic::Identifier};
+/// use mcproto_types::contextual::IdSet;
+///
+/// let inline = IdSet::inline(vec![3, 7]);
+/// let mut encoded = Vec::new();
+/// inline.encode(&mut encoded)?;
+/// assert_eq!(encoded, [0x03, 0x03, 0x07]);
+///
+/// let mut input = encoded.as_slice();
+/// assert_eq!(IdSet::decode(&mut input)?, inline);
+///
+/// let tagged = IdSet::tag(Identifier::new("minecraft:logs")?);
+/// assert!(tagged.is_tag());
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum IdSet {
+    /// A named set of IDs defined by a registry tag.
+    Tag(Identifier),
+    /// An ad-hoc set of zero-based registry IDs enumerated inline.
+    Inline(Vec<i32>),
+}
+
+impl IdSet {
+    /// Creates an ID set that refers to a registry tag.
+    #[must_use]
+    pub const fn tag(tag_name: Identifier) -> Self {
+        Self::Tag(tag_name)
+    }
+
+    /// Creates an ID set containing inline registry IDs.
+    #[must_use]
+    pub const fn inline(ids: Vec<i32>) -> Self {
+        Self::Inline(ids)
+    }
+
+    /// Returns whether this set refers to a registry tag.
+    #[must_use]
+    pub const fn is_tag(&self) -> bool {
+        matches!(self, Self::Tag(_))
+    }
+
+    /// Returns whether this set enumerates registry IDs inline.
+    #[must_use]
+    pub const fn is_inline(&self) -> bool {
+        matches!(self, Self::Inline(_))
+    }
+
+    /// Returns the registry tag name, if this is a tag reference.
+    #[must_use]
+    pub const fn tag_name(&self) -> Option<&Identifier> {
+        match self {
+            Self::Tag(tag_name) => Some(tag_name),
+            Self::Inline(_) => None,
+        }
+    }
+
+    /// Returns the inline registry IDs, if present.
+    #[must_use]
+    pub const fn ids(&self) -> Option<&[i32]> {
+        match self {
+            Self::Tag(_) => None,
+            Self::Inline(ids) => Some(ids.as_slice()),
+        }
+    }
+
+    /// Extracts the registry tag name, if this is a tag reference.
+    #[must_use]
+    pub fn into_tag(self) -> Option<Identifier> {
+        match self {
+            Self::Tag(tag_name) => Some(tag_name),
+            Self::Inline(_) => None,
+        }
+    }
+
+    /// Extracts the inline registry IDs, if present.
+    #[must_use]
+    pub fn into_ids(self) -> Option<Vec<i32>> {
+        match self {
+            Self::Tag(_) => None,
+            Self::Inline(ids) => Some(ids),
+        }
+    }
+}
+
+impl From<Identifier> for IdSet {
+    fn from(tag_name: Identifier) -> Self {
+        Self::Tag(tag_name)
+    }
+}
+
+impl From<Vec<i32>> for IdSet {
+    fn from(ids: Vec<i32>) -> Self {
+        Self::Inline(ids)
+    }
+}
+
+impl TypeCodec for IdSet {
+    fn encode(&self, writer: &mut impl std::io::Write) -> Result<(), CodecError> {
+        match self {
+            Self::Tag(tag_name) => {
+                writer
+                    .write_varint(0)
+                    .map_err(|error| error.with_context(CodecKind::IdSet))?;
+                tag_name
+                    .encode(writer)
+                    .map_err(|error| error.with_context(CodecKind::IdSet))
+            }
+            Self::Inline(ids) => {
+                if let Some(id) = ids.iter().copied().find(|id| *id < 0) {
+                    return Err(CodecError::invalid_encoding_for_operation(
+                        CodecKind::IdSet,
+                        CodecOperation::Write,
+                        0,
+                        InvalidEncodingReason::InvalidRegistryId {
+                            value: id,
+                            max: i32::MAX,
+                        },
+                    ));
+                }
+                let type_value = i32::try_from(ids.len())
+                    .ok()
+                    .and_then(|length| length.checked_add(1))
+                    .ok_or_else(|| {
+                        CodecError::invalid_encoding_for_operation(
+                            CodecKind::IdSet,
+                            CodecOperation::Write,
+                            0,
+                            InvalidEncodingReason::LengthOutOfRange {
+                                max: (i32::MAX - 1) as usize,
+                                actual: ids.len(),
+                            },
+                        )
+                    })?;
+
+                writer
+                    .write_varint(type_value)
+                    .map_err(|error| error.with_context(CodecKind::IdSet))?;
+                for id in ids {
+                    writer
+                        .write_varint(*id)
+                        .map_err(|error| error.with_context(CodecKind::IdSet))?;
+                }
+                Ok(())
+            }
+        }
+    }
+
+    fn decode(reader: &mut impl std::io::Read) -> Result<Self, CodecError> {
+        let (type_value, type_size) = reader
+            .read_varint_with_size()
+            .map_err(|error| error.with_context(CodecKind::IdSet))?;
+        match type_value {
+            0 => Identifier::decode(reader)
+                .map(Self::Tag)
+                .map_err(|error| error.with_context(CodecKind::IdSet)),
+            1.. => {
+                let length = (type_value - 1) as usize;
+                let mut bytes_processed = type_size;
+                let mut ids = Vec::new();
+                for _ in 0..length {
+                    let (id, id_size) = reader
+                        .read_varint_with_size()
+                        .map_err(|error| error.with_context(CodecKind::IdSet))?;
+                    bytes_processed += id_size;
+                    if id < 0 {
+                        return Err(CodecError::invalid_encoding(
+                            CodecKind::IdSet,
+                            bytes_processed,
+                            InvalidEncodingReason::InvalidRegistryId {
+                                value: id,
+                                max: i32::MAX,
+                            },
+                        ));
+                    }
+                    ids.push(id);
+                }
+                Ok(Self::Inline(ids))
+            }
+            _ => Err(CodecError::invalid_encoding(
+                CodecKind::IdSet,
+                type_size,
+                InvalidEncodingReason::InvalidIdSetType { value: type_value },
+            )),
+        }
     }
 }

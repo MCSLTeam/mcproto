@@ -73,6 +73,10 @@ pub enum CodecKind {
     PrefixedArray,
     /// A value selected from a fixed protocol enumeration.
     Enum,
+    /// A registry ID or an inline protocol value.
+    IdOr,
+    /// Registry IDs enumerated inline or referenced through a tag.
+    IdSet,
     /// A UTF-8 string prefixed by its byte length as a VarInt.
     ///
     /// The protocol limits both the UTF-8 payload size and the number of UTF-16
@@ -134,6 +138,8 @@ impl fmt::Display for CodecKind {
             Self::ByteArray => formatter.write_str("Byte Array"),
             Self::PrefixedArray => formatter.write_str("Prefixed Array"),
             Self::Enum => formatter.write_str("Enum"),
+            Self::IdOr => formatter.write_str("ID or X"),
+            Self::IdSet => formatter.write_str("ID Set"),
             Self::String => formatter.write_str("String"),
             Self::Identifier => formatter.write_str("Identifier"),
             Self::TextComponent => formatter.write_str("TextComponent"),
@@ -217,6 +223,23 @@ pub enum InvalidEncodingReason {
     EnumDiscriminantOutOfRange {
         /// The numeric discriminant that cannot be encoded.
         value: i128,
+    },
+    /// A registry ID cannot be represented by the `ID or X` wire format.
+    InvalidRegistryId {
+        /// The invalid registry ID.
+        value: i32,
+        /// The greatest registry ID supported by the enclosing wire format.
+        max: i32,
+    },
+    /// The decoded `ID or X` selector is negative.
+    InvalidIdOrSelector {
+        /// The invalid selector value read from the wire.
+        value: i32,
+    },
+    /// The decoded `ID Set` type value is negative.
+    InvalidIdSetType {
+        /// The invalid type value read from the wire.
+        value: i32,
     },
     /// The packed byte array does not have the required fixed length.
     InvalidFixedBitSetLength {
@@ -322,6 +345,16 @@ impl fmt::Display for InvalidEncodingReason {
             }
             Self::EnumDiscriminantOutOfRange { value } => {
                 write!(formatter, "enum discriminant cannot be encoded: {value}")
+            }
+            Self::InvalidRegistryId { value, max } => write!(
+                formatter,
+                "registry ID must be between 0 and {max}, got {value}"
+            ),
+            Self::InvalidIdOrSelector { value } => {
+                write!(formatter, "ID or X selector cannot be negative: {value}")
+            }
+            Self::InvalidIdSetType { value } => {
+                write!(formatter, "ID Set type cannot be negative: {value}")
             }
             Self::InvalidFixedBitSetLength { expected, actual } => write!(
                 formatter,
