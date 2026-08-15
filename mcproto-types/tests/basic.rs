@@ -7,7 +7,9 @@ use mcproto_codec::error::{
 };
 use mcproto_types::{
     TypeCodec,
-    basic::{Boolean, Byte, Int, Long, Short, UnsignedByte, UnsignedShort, VarInt, VarLong},
+    basic::{
+        Boolean, Byte, Int, Long, LpVec3, Short, UnsignedByte, UnsignedShort, VarInt, VarLong,
+    },
 };
 
 macro_rules! codec_case {
@@ -126,6 +128,103 @@ codec_case!(
 );
 
 #[test]
+fn lp_vec3_matches_protocol_samples() {
+    let cases: &[(LpVec3, &[u8])] = &[
+        (LpVec3::new(0.0, 0.0, 0.0), &[0x00]),
+        (
+            LpVec3::new(1.0, 0.0, -1.0),
+            &[0xf1, 0xff, 0x00, 0x00, 0xff, 0xff],
+        ),
+        (
+            LpVec3::new(10.0, 0.2, -5.0),
+            &[0xf6, 0xff, 0x40, 0x01, 0x05, 0x1f, 0x02],
+        ),
+        (
+            LpVec3::new(123457.0, 15.071, 0.0),
+            &[0xf5, 0xff, 0x7f, 0xff, 0x00, 0x07, 0x90, 0xf1, 0x01],
+        ),
+    ];
+
+    for (value, expected) in cases {
+        let mut encoded = Vec::new();
+        value.encode(&mut encoded).unwrap();
+        assert_eq!(&encoded, expected);
+
+        let mut input = *expected;
+        let decoded = LpVec3::decode(&mut input).unwrap();
+        let tolerance = value.x.abs().max(value.y.abs()).max(value.z.abs()).ceil()
+            / LpVec3::MAX_QUANTIZED_VALUE
+            + 1e-12;
+        assert!((decoded.x - value.x).abs() <= tolerance);
+        assert!((decoded.y - value.y).abs() <= tolerance);
+        assert!((decoded.z - value.z).abs() <= tolerance);
+        assert!(input.is_empty());
+    }
+}
+
+#[test]
+fn lp_vec3_zero_form_consumes_only_one_byte() {
+    let mut input = [0x00, 0xaa].as_slice();
+    assert_eq!(LpVec3::decode(&mut input).unwrap(), LpVec3::default());
+    assert_eq!(input, [0xaa]);
+}
+
+#[test]
+fn lp_vec3_tiny_and_nan_values_use_zero_form() {
+    let values = [
+        LpVec3::new(LpVec3::ZERO_THRESHOLD / 2.0, 0.0, 0.0),
+        LpVec3::new(f64::NAN, 1.0, -1.0),
+    ];
+
+    for value in values {
+        let mut encoded = Vec::new();
+        value.encode(&mut encoded).unwrap();
+        assert_eq!(encoded, [0x00]);
+    }
+}
+
+#[test]
+fn lp_vec3_rejects_unrepresentable_scale() {
+    let value = LpVec3::new(LpVec3::MAX_SCALE_FACTOR as f64 + 1.0, 0.0, 0.0);
+    let mut encoded = Vec::new();
+    let error = value.encode(&mut encoded).unwrap_err();
+
+    assert!(encoded.is_empty());
+    assert_eq!(
+        error.kind(),
+        CodecErrorKind::InvalidEncoding(InvalidEncodingReason::LpVec3ScaleOutOfRange {
+            scale_factor: LpVec3::MAX_SCALE_FACTOR + 1,
+            max: LpVec3::MAX_SCALE_FACTOR,
+        })
+    );
+    assert_eq!(error.codec(), CodecKind::LpVec3);
+    assert_eq!(error.operation(), CodecOperation::Write);
+    assert_eq!(error.bytes_processed(), 0);
+}
+
+#[test]
+fn lp_vec3_truncated_payload_reports_exact_progress() {
+    let mut input = [0x01, 0x02, 0x03].as_slice();
+    let error = LpVec3::decode(&mut input).unwrap_err();
+
+    assert_eq!(error.kind(), CodecErrorKind::UnexpectedEof);
+    assert_eq!(error.codec(), CodecKind::LpVec3);
+    assert_eq!(error.operation(), CodecOperation::Read);
+    assert_eq!(error.bytes_processed(), 3);
+}
+
+#[test]
+fn lp_vec3_truncated_continuation_keeps_varint_error() {
+    let mut input = [0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80].as_slice();
+    let error = LpVec3::decode(&mut input).unwrap_err();
+
+    assert_eq!(error.kind(), CodecErrorKind::UnexpectedEof);
+    assert_eq!(error.codec(), CodecKind::VarInt);
+    assert_eq!(error.contexts(), &[CodecKind::LpVec3]);
+    assert_eq!(error.bytes_processed(), 1);
+}
+
+#[test]
 fn boolean_rejects_non_boolean_values() {
     for value in [0x02, 0x7f, 0xff] {
         let encoded = [value];
@@ -238,6 +337,7 @@ read_error_case!(int_read_error, Int, Int);
 read_error_case!(long_read_error, Long, Long);
 read_error_case!(varint_read_error, VarInt, VarInt);
 read_error_case!(varlong_read_error, VarLong, VarLong);
+read_error_case!(lp_vec3_read_error, LpVec3, LpVec3);
 
 struct FailingWriter;
 
@@ -278,6 +378,7 @@ write_error_case!(int_write_error, Int(0), Int);
 write_error_case!(long_write_error, Long(0), Long);
 write_error_case!(varint_write_error, VarInt(0), VarInt);
 write_error_case!(varlong_write_error, VarLong(0), VarLong);
+write_error_case!(lp_vec3_write_error, LpVec3::default(), LpVec3);
 
 struct PartialErrorReader {
     bytes: &'static [u8],

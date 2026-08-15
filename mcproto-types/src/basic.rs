@@ -652,6 +652,160 @@ impl TypeCodec for Angle {
     }
 }
 
+/// Three doubles compressed into a shared-scale, low-precision vector.
+///
+/// `LpVec3` normally occupies six bytes. The coordinates are divided by their
+/// rounded-up maximum absolute value, quantized into three unsigned 15-bit
+/// values, and packed with a shared scale factor:
+///
+/// ```text
+/// X: 15 bits | Y: 15 bits | Z: 15 bits | continuation: 1 bit | scale: 2 bits
+/// ```
+///
+/// The first two packed bytes are written in little-endian order, while the
+/// remaining four bytes are written in big-endian order. If the scale factor
+/// is greater than three, its upper bits follow as a VarInt. A vector whose
+/// greatest absolute coordinate is below `1 / 32766`, or which contains NaN,
+/// is encoded as the single byte `0x00` and decodes as zero.
+///
+/// This format is used by the Java Edition `Spawn Entity` and
+/// `Set Entity Velocity` packets.
+///
+/// # Examples
+///
+/// ```
+/// use mcproto_types::{TypeCodec, basic::LpVec3};
+///
+/// let value = LpVec3::new(10.0, 0.2, -5.0);
+/// let mut encoded = Vec::new();
+/// value.encode(&mut encoded)?;
+/// assert_eq!(encoded, [0xf6, 0xff, 0x40, 0x01, 0x05, 0x1f, 0x02]);
+///
+/// let mut input = encoded.as_slice();
+/// let decoded = LpVec3::decode(&mut input)?;
+/// assert!((decoded.x - value.x).abs() < 0.001);
+/// assert!((decoded.y - value.y).abs() < 0.001);
+/// assert!((decoded.z - value.z).abs() < 0.001);
+/// assert!(input.is_empty());
+/// # Ok::<(), mcproto_codec::error::CodecError>(())
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct LpVec3 {
+    /// The x coordinate.
+    pub x: f64,
+    /// The y coordinate.
+    pub y: f64,
+    /// The z coordinate.
+    pub z: f64,
+}
+
+impl LpVec3 {
+    /// Greatest quantized coordinate value stored in a 15-bit field.
+    pub const MAX_QUANTIZED_VALUE: f64 = 32766.0;
+    /// Coordinates below this absolute maximum use the one-byte zero form.
+    pub const ZERO_THRESHOLD: f64 = 1.0 / Self::MAX_QUANTIZED_VALUE;
+    /// Greatest shared scale factor representable by two low bits and a
+    /// 32-bit VarInt continuation.
+    pub const MAX_SCALE_FACTOR: u64 = (u32::MAX as u64) << 2 | 0x03;
+
+    const CONTINUATION_FLAG: u64 = 0x04;
+    const SCALE_BITS: u64 = 0x03;
+
+    /// Creates a low-precision vector from its coordinates.
+    #[must_use]
+    pub const fn new(x: f64, y: f64, z: f64) -> Self {
+        Self { x, y, z }
+    }
+
+    fn pack(value: f64) -> u64 {
+        ((value * 0.5 + 0.5) * Self::MAX_QUANTIZED_VALUE).round() as u64
+    }
+
+    fn unpack(value: u64) -> f64 {
+        ((value & 32767) as f64).min(Self::MAX_QUANTIZED_VALUE) * 2.0 / Self::MAX_QUANTIZED_VALUE
+            - 1.0
+    }
+}
+
+impl TypeCodec for LpVec3 {
+    fn encode(&self, writer: &mut impl Write) -> Result<(), CodecError> {
+        let contains_nan = self.x.is_nan() || self.y.is_nan() || self.z.is_nan();
+        let max_coordinate = self.x.abs().max(self.y.abs()).max(self.z.abs());
+        if contains_nan || max_coordinate < Self::ZERO_THRESHOLD {
+            return write_all_counted(writer, &[0], CodecKind::LpVec3, 0);
+        }
+
+        let scale_factor = max_coordinate.ceil() as u64;
+        if scale_factor > Self::MAX_SCALE_FACTOR {
+            return Err(CodecError::invalid_encoding_for_operation(
+                CodecKind::LpVec3,
+                CodecOperation::Write,
+                0,
+                InvalidEncodingReason::LpVec3ScaleOutOfRange {
+                    scale_factor,
+                    max: Self::MAX_SCALE_FACTOR,
+                },
+            ));
+        }
+
+        let need_continuation = scale_factor & Self::SCALE_BITS != scale_factor;
+        let packed_scale = if need_continuation {
+            scale_factor & Self::SCALE_BITS | Self::CONTINUATION_FLAG
+        } else {
+            scale_factor
+        };
+        let scale = scale_factor as f64;
+        let packed = Self::pack(self.x / scale) << 3
+            | Self::pack(self.y / scale) << 18
+            | Self::pack(self.z / scale) << 33
+            | packed_scale;
+        let upper = ((packed >> 16) as u32).to_be_bytes();
+        let bytes = [
+            packed as u8,
+            (packed >> 8) as u8,
+            upper[0],
+            upper[1],
+            upper[2],
+            upper[3],
+        ];
+        write_all_counted(writer, &bytes, CodecKind::LpVec3, 0)?;
+
+        if need_continuation {
+            writer
+                .write_varint((scale_factor >> 2) as u32 as i32)
+                .map_err(|error| error.with_context(CodecKind::LpVec3))?;
+        }
+        Ok(())
+    }
+
+    fn decode(reader: &mut impl Read) -> Result<Self, CodecError> {
+        let mut first = [0; 1];
+        read_exact_counted(reader, &mut first, CodecKind::LpVec3, 0)?;
+        if first[0] == 0 {
+            return Ok(Self::default());
+        }
+
+        let mut remaining = [0; 5];
+        read_exact_counted(reader, &mut remaining, CodecKind::LpVec3, 1)?;
+        let upper = u32::from_be_bytes([remaining[1], remaining[2], remaining[3], remaining[4]]);
+        let packed = u64::from(upper) << 16 | u64::from(remaining[0]) << 8 | u64::from(first[0]);
+        let mut scale_factor = u64::from(first[0]) & Self::SCALE_BITS;
+        if first[0] & Self::CONTINUATION_FLAG as u8 != 0 {
+            let continuation = reader
+                .read_varint()
+                .map_err(|error| error.with_context(CodecKind::LpVec3))?;
+            scale_factor |= u64::from(continuation as u32) << 2;
+        }
+
+        let scale = scale_factor as f64;
+        Ok(Self {
+            x: Self::unpack(packed >> 3) * scale,
+            y: Self::unpack(packed >> 18) * scale,
+            z: Self::unpack(packed >> 33) * scale,
+        })
+    }
+}
+
 /// A 128-bit universally unique identifier.
 ///
 /// Encoded as an unsigned 128-bit integer (or two unsigned 64-bit integers: the

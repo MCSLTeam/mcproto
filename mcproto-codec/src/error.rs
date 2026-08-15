@@ -55,6 +55,8 @@ pub enum CodecKind {
     Position,
     /// A rotation angle encoded in 1/256 turn steps.
     Angle,
+    /// Three quantized doubles packed with a shared scale factor.
+    LpVec3,
     /// A 128-bit universally unique identifier.
     Uuid,
     /// A length-prefixed bit set of packed 64-bit words.
@@ -129,6 +131,7 @@ impl fmt::Display for CodecKind {
             Self::Long => formatter.write_str("Long"),
             Self::Position => formatter.write_str("Position"),
             Self::Angle => formatter.write_str("Angle"),
+            Self::LpVec3 => formatter.write_str("LpVec3"),
             Self::Uuid => formatter.write_str("UUID"),
             Self::BitSet => formatter.write_str("BitSet"),
             Self::FixedBitSet => formatter.write_str("Fixed BitSet"),
@@ -223,6 +226,13 @@ pub enum InvalidEncodingReason {
     EnumDiscriminantOutOfRange {
         /// The numeric discriminant that cannot be encoded.
         value: i128,
+    },
+    /// An LpVec3 scale factor exceeds the 34-bit wire representation.
+    LpVec3ScaleOutOfRange {
+        /// The rounded-up scale factor that was to be encoded.
+        scale_factor: u64,
+        /// The greatest scale factor representable by the format.
+        max: u64,
     },
     /// A registry ID cannot be represented by the `ID or X` wire format.
     InvalidRegistryId {
@@ -346,6 +356,10 @@ impl fmt::Display for InvalidEncodingReason {
             Self::EnumDiscriminantOutOfRange { value } => {
                 write!(formatter, "enum discriminant cannot be encoded: {value}")
             }
+            Self::LpVec3ScaleOutOfRange { scale_factor, max } => write!(
+                formatter,
+                "LpVec3 scale factor {scale_factor} exceeds the maximum of {max}"
+            ),
             Self::InvalidRegistryId { value, max } => write!(
                 formatter,
                 "registry ID must be between 0 and {max}, got {value}"
