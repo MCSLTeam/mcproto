@@ -10,6 +10,17 @@ pub mod json_text_component;
 pub mod nbt;
 pub mod text_component;
 
+/// Re-exports all protocol types at the crate root.
+///
+/// The original module paths remain available, so both
+/// `mcproto_types::basic::VarInt` and `mcproto_types::VarInt` are supported.
+pub use basic::*;
+pub use component::*;
+pub use contextual::*;
+pub use json_text_component::*;
+pub use nbt::*;
+pub use text_component::*;
+
 /// Re-export of the [`ProtocolEnum`] derive macro.
 ///
 /// The macro implements both [`ProtocolEnum`] and [`TypeCodec`] for a
