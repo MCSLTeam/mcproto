@@ -3,7 +3,7 @@
 //! This module includes primitive numeric values, booleans, variable-length
 //! integers, length-prefixed strings, and resource identifiers.
 
-use crate::TypeCodec;
+use crate::{EnumRepr, TypeCodec};
 use mcproto_codec::{
     error::{CodecError, CodecKind, CodecOperation, InvalidEncodingReason},
     io::{read_exact_counted, write_all_counted},
@@ -915,3 +915,41 @@ impl<const N: usize> TypeCodec for FixedBitSet<N> {
         Ok(value)
     }
 }
+
+macro_rules! impl_enum_repr {
+    ($type:ident, $primitive:ty) => {
+        impl EnumRepr for $type {
+            fn from_discriminant(value: i128) -> Option<Self> {
+                <$primitive>::try_from(value).ok().map(Self)
+            }
+
+            fn discriminant(&self) -> i128 {
+                self.0 as i128
+            }
+        }
+    };
+}
+
+impl EnumRepr for Boolean {
+    fn from_discriminant(value: i128) -> Option<Self> {
+        match value {
+            0 => Some(Self(false)),
+            1 => Some(Self(true)),
+            _ => None,
+        }
+    }
+
+    fn discriminant(&self) -> i128 {
+        if self.0 { 1 } else { 0 }
+    }
+}
+
+impl_enum_repr!(Byte, i8);
+impl_enum_repr!(UnsignedByte, u8);
+impl_enum_repr!(Short, i16);
+impl_enum_repr!(UnsignedShort, u16);
+impl_enum_repr!(Int, i32);
+impl_enum_repr!(Long, i64);
+impl_enum_repr!(VarInt, i32);
+impl_enum_repr!(VarLong, i64);
+impl_enum_repr!(Angle, u8);

@@ -1,0 +1,19 @@
+[package]
+name = "mcproto-derive"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Derive macros for Minecraft protocol types."
+readme = "README.md"
+keywords = ["Minecraft", "protocol", "derive"]
+categories = ["network-programming", "game-development"]
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2.workspace = true
+quote.workspace = true
+syn.workspace = true

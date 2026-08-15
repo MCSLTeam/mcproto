@@ -67,6 +67,10 @@ pub enum CodecKind {
     PrefixedOptional,
     /// A sequence whose element count is supplied by protocol context.
     Array,
+    /// A sequence prefixed by its element count as a VarInt.
+    PrefixedArray,
+    /// A value selected from a fixed protocol enumeration.
+    Enum,
     /// A UTF-8 string prefixed by its byte length as a VarInt.
     ///
     /// The protocol limits both the UTF-8 payload size and the number of UTF-16
@@ -125,6 +129,8 @@ impl fmt::Display for CodecKind {
             Self::Optional => formatter.write_str("Optional"),
             Self::PrefixedOptional => formatter.write_str("Prefixed Optional"),
             Self::Array => formatter.write_str("Array"),
+            Self::PrefixedArray => formatter.write_str("Prefixed Array"),
+            Self::Enum => formatter.write_str("Enum"),
             Self::String => formatter.write_str("String"),
             Self::Identifier => formatter.write_str("Identifier"),
             Self::TextComponent => formatter.write_str("TextComponent"),
@@ -191,6 +197,23 @@ pub enum InvalidEncodingReason {
     NegativeLength {
         /// The negative length decoded from the data.
         value: i32,
+    },
+    /// The length cannot be represented by the encoded length prefix.
+    LengthOutOfRange {
+        /// The greatest length representable by the prefix.
+        max: usize,
+        /// The length that was to be encoded.
+        actual: usize,
+    },
+    /// A decoded numeric enum value does not name a declared variant.
+    InvalidEnumValue {
+        /// The numeric value decoded from the enum's wire representation.
+        value: i128,
+    },
+    /// An enum variant's numeric discriminant cannot be represented on the wire.
+    EnumDiscriminantOutOfRange {
+        /// The numeric discriminant that cannot be encoded.
+        value: i128,
     },
     /// The packed byte array does not have the required fixed length.
     InvalidFixedBitSetLength {
@@ -287,6 +310,15 @@ impl fmt::Display for InvalidEncodingReason {
             ),
             Self::NegativeLength { value } => {
                 write!(formatter, "length cannot be negative: {value}")
+            }
+            Self::LengthOutOfRange { max, actual } => {
+                write!(formatter, "length {actual} exceeds the maximum of {max}")
+            }
+            Self::InvalidEnumValue { value } => {
+                write!(formatter, "invalid enum value: {value}")
+            }
+            Self::EnumDiscriminantOutOfRange { value } => {
+                write!(formatter, "enum discriminant cannot be encoded: {value}")
             }
             Self::InvalidFixedBitSetLength { expected, actual } => write!(
                 formatter,

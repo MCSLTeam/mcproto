@@ -1,10 +1,11 @@
-//! Context and optional protocol values whose wire representation depends on
-//! their enclosing packet or data structure.
+//! Context and protocol values whose wire representation depends on their
+//! enclosing packet or data structure.
 
 use crate::{ContextualCodec, TypeCodec, basic::Boolean};
 use mcproto_codec::error::{
     CodecError, CodecKind, CodecOperation, ContextRequirement, InvalidEncodingReason,
 };
+use mcproto_codec::varint::{VarIntRead, VarIntWrite};
 
 /// External information required to encode or decode a contextual value.
 ///
@@ -292,6 +293,140 @@ where
             values.push(
                 T::decode_with_context(reader, element_context)
                     .map_err(|error| error.with_context(CodecKind::Array))?,
+            );
+        }
+        Ok(Self(values))
+    }
+}
+
+/// A sequence prefixed by its element count as a VarInt.
+///
+/// The [Minecraft protocol Prefixed Array] wire representation is a
+/// non-negative [`VarInt`] length followed by exactly that many `T` values:
+///
+/// ```text
+/// VarInt(length) + T[0] + T[1] + ... + T[length - 1]
+/// ```
+///
+/// A zero length is encoded as `0x00` and has no element payload. Since the
+/// prefix is a signed 32-bit VarInt, arrays cannot contain more than
+/// 2,147,483,647 elements. This type supports all context-independent
+/// protocol values through `T: TypeCodec`.
+///
+/// [Minecraft protocol Prefixed Array]: https://minecraft.wiki/w/Java_Edition_protocol/Packets#Prefixed_Array
+/// [`VarInt`]: crate::basic::VarInt
+///
+/// # Examples
+///
+/// ```
+/// use mcproto_types::{TypeCodec, basic::UnsignedByte};
+/// use mcproto_types::contextual::PrefixedArray;
+///
+/// let values = PrefixedArray(vec![UnsignedByte(1), UnsignedByte(2)]);
+/// let mut encoded = Vec::new();
+/// values.encode(&mut encoded)?;
+/// assert_eq!(encoded, [0x02, 0x01, 0x02]);
+///
+/// let mut input = encoded.as_slice();
+/// assert_eq!(PrefixedArray::<UnsignedByte>::decode(&mut input)?, values);
+/// assert!(input.is_empty());
+/// # Ok::<(), mcproto_codec::error::CodecError>(())
+/// ```
+#[repr(transparent)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub struct PrefixedArray<T>(
+    /// The array elements.
+    pub Vec<T>,
+);
+
+impl<T> PrefixedArray<T> {
+    /// Creates a length-prefixed array from its elements.
+    #[must_use]
+    pub const fn new(values: Vec<T>) -> Self {
+        Self(values)
+    }
+
+    /// Returns the number of elements.
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Returns whether the array contains no elements.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Returns the elements as a slice.
+    #[must_use]
+    pub const fn as_slice(&self) -> &[T] {
+        self.0.as_slice()
+    }
+
+    /// Extracts the underlying vector.
+    #[must_use]
+    pub fn into_vec(self) -> Vec<T> {
+        self.0
+    }
+}
+
+impl<T> From<Vec<T>> for PrefixedArray<T> {
+    fn from(values: Vec<T>) -> Self {
+        Self(values)
+    }
+}
+
+impl<T> From<PrefixedArray<T>> for Vec<T> {
+    fn from(values: PrefixedArray<T>) -> Self {
+        values.0
+    }
+}
+
+impl<T> TypeCodec for PrefixedArray<T>
+where
+    T: TypeCodec,
+{
+    fn encode(&self, writer: &mut impl std::io::Write) -> Result<(), CodecError> {
+        let length = i32::try_from(self.len()).map_err(|_| {
+            CodecError::invalid_encoding_for_operation(
+                CodecKind::PrefixedArray,
+                CodecOperation::Write,
+                0,
+                InvalidEncodingReason::LengthOutOfRange {
+                    max: i32::MAX as usize,
+                    actual: self.len(),
+                },
+            )
+        })?;
+
+        writer
+            .write_varint(length)
+            .map_err(|error| error.with_context(CodecKind::PrefixedArray))?;
+        for value in &self.0 {
+            value
+                .encode(writer)
+                .map_err(|error| error.with_context(CodecKind::PrefixedArray))?;
+        }
+        Ok(())
+    }
+
+    fn decode(reader: &mut impl std::io::Read) -> Result<Self, CodecError> {
+        let (length, prefix_size) = reader
+            .read_varint_with_size()
+            .map_err(|error| error.with_context(CodecKind::PrefixedArray))?;
+        if length < 0 {
+            return Err(CodecError::invalid_encoding(
+                CodecKind::PrefixedArray,
+                prefix_size,
+                InvalidEncodingReason::NegativeLength { value: length },
+            ));
+        }
+
+        let mut values = Vec::new();
+        for _ in 0..length as usize {
+            values.push(
+                T::decode(reader).map_err(|error| error.with_context(CodecKind::PrefixedArray))?,
             );
         }
         Ok(Self(values))

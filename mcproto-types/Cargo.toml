@@ -13,6 +13,7 @@ categories = ["network-programming", "game-development"]
 [dependencies]
 fastnbt.workspace = true
 mcproto-codec.workspace = true
+mcproto-derive.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 serde_stacker.workspace = true
