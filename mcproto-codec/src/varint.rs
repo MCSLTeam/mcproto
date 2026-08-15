@@ -125,16 +125,6 @@ pub trait VarIntRead: Read {
                         InvalidEncodingReason::TooLong { max_bytes: 5 },
                     ));
                 }
-                if (byte & !0x0F) != 0 {
-                    return Err(CodecError::invalid_encoding(
-                        CodecKind::VarInt,
-                        i + 1,
-                        InvalidEncodingReason::ValueOutOfRange {
-                            terminal_byte: byte,
-                            allowed_mask: 0x0F,
-                        },
-                    ));
-                }
             }
 
             let value = (byte & 0x7F) as u32;

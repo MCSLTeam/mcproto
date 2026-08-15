@@ -123,18 +123,11 @@ fn varint_rejects_continuation_in_fifth_byte() {
 }
 
 #[test]
-fn varint_rejects_out_of_range_terminal_bits() {
-    let mut input = [0xff, 0xff, 0xff, 0xff, 0x10].as_slice();
-    let error = input.read_varint().unwrap_err();
+fn varint_accepts_terminal_bits_above_i32_width() {
+    let mut input = [0x80, 0x80, 0x80, 0x80, 0x10].as_slice();
 
-    assert_eq!(
-        error.kind(),
-        CodecErrorKind::InvalidEncoding(InvalidEncodingReason::ValueOutOfRange {
-            terminal_byte: 0x10,
-            allowed_mask: 0x0f,
-        })
-    );
-    assert_eq!(error.bytes_processed(), 5);
+    assert_eq!(input.read_varint_with_size().unwrap(), (0, 5));
+    assert!(input.is_empty());
 }
 
 #[test]
@@ -151,19 +144,13 @@ fn varlong_rejects_continuation_in_tenth_byte() {
 }
 
 #[test]
-fn varlong_rejects_out_of_range_terminal_bits() {
-    let mut encoded = [0xff; 10];
+fn varlong_accepts_terminal_bits_above_i64_width() {
+    let mut encoded = [0x80; 10];
     encoded[9] = 0x02;
-    let error = encoded.as_slice().read_varlong().unwrap_err();
+    let mut input = encoded.as_slice();
 
-    assert_eq!(
-        error.kind(),
-        CodecErrorKind::InvalidEncoding(InvalidEncodingReason::ValueOutOfRange {
-            terminal_byte: 0x02,
-            allowed_mask: 0x01,
-        })
-    );
-    assert_eq!(error.bytes_processed(), 10);
+    assert_eq!(input.read_varlong_with_size().unwrap(), (0, 10));
+    assert!(input.is_empty());
 }
 
 // Produces one Interrupted error before delegating all subsequent reads.
