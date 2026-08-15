@@ -67,6 +67,8 @@ pub enum CodecKind {
     PrefixedOptional,
     /// A sequence whose element count is supplied by protocol context.
     Array,
+    /// A raw sequence of bytes whose length is supplied by protocol context.
+    ByteArray,
     /// A sequence prefixed by its element count as a VarInt.
     PrefixedArray,
     /// A value selected from a fixed protocol enumeration.
@@ -129,6 +131,7 @@ impl fmt::Display for CodecKind {
             Self::Optional => formatter.write_str("Optional"),
             Self::PrefixedOptional => formatter.write_str("Prefixed Optional"),
             Self::Array => formatter.write_str("Array"),
+            Self::ByteArray => formatter.write_str("Byte Array"),
             Self::PrefixedArray => formatter.write_str("Prefixed Array"),
             Self::Enum => formatter.write_str("Enum"),
             Self::String => formatter.write_str("String"),

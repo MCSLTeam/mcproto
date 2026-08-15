@@ -5,6 +5,7 @@ use crate::{ContextualCodec, TypeCodec, basic::Boolean};
 use mcproto_codec::error::{
     CodecError, CodecKind, CodecOperation, ContextRequirement, InvalidEncodingReason,
 };
+use mcproto_codec::io::{read_exact_counted, write_all_counted};
 use mcproto_codec::varint::{VarIntRead, VarIntWrite};
 
 /// External information required to encode or decode a contextual value.
@@ -296,6 +297,137 @@ where
             );
         }
         Ok(Self(values))
+    }
+}
+
+/// A raw sequence of bytes whose length is supplied by context.
+///
+/// A `ByteArray` has no wire length prefix. Its meaning and number of bytes
+/// are determined by the enclosing packet or data structure, which supplies
+/// the length through [`Context::for_array_length`] or
+/// [`Context::with_array_length`]. It is encoded as exactly that many bytes:
+///
+/// ```text
+/// byte[0] + byte[1] + ... + byte[length - 1]
+/// ```
+///
+/// This differs from [`PrefixedArray`], which stores its own VarInt length,
+/// and from [`Array`], which supports arbitrary contextual element codecs.
+/// `ByteArray` writes and reads its byte buffer in one operation and does not
+/// use array element contexts.
+///
+/// [Minecraft protocol Byte Array]: https://minecraft.wiki/w/Java_Edition_protocol/Packets#Byte_Array
+///
+/// # Examples
+///
+/// ```
+/// use mcproto_types::ContextualCodec;
+/// use mcproto_types::contextual::{ByteArray, Context};
+///
+/// let value = ByteArray(vec![0xde, 0xad, 0xbe, 0xef]);
+/// let context = Context::for_array_length(4);
+/// let mut encoded = Vec::new();
+/// value.encode_with_context(&mut encoded, &context)?;
+/// assert_eq!(encoded, [0xde, 0xad, 0xbe, 0xef]);
+///
+/// let mut input = encoded.as_slice();
+/// assert_eq!(ByteArray::decode_with_context(&mut input, &context)?, value);
+/// assert!(input.is_empty());
+/// # Ok::<(), mcproto_codec::error::CodecError>(())
+/// ```
+#[repr(transparent)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub struct ByteArray(
+    /// The raw bytes.
+    pub Vec<u8>,
+);
+
+impl ByteArray {
+    /// Creates a byte array from raw bytes.
+    #[must_use]
+    pub const fn new(bytes: Vec<u8>) -> Self {
+        Self(bytes)
+    }
+
+    /// Returns the number of bytes.
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Returns whether this byte array is empty.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Returns the bytes as a slice.
+    #[must_use]
+    pub const fn as_slice(&self) -> &[u8] {
+        self.0.as_slice()
+    }
+
+    /// Extracts the underlying byte vector.
+    #[must_use]
+    pub fn into_vec(self) -> Vec<u8> {
+        self.0
+    }
+}
+
+impl From<Vec<u8>> for ByteArray {
+    fn from(bytes: Vec<u8>) -> Self {
+        Self(bytes)
+    }
+}
+
+impl From<ByteArray> for Vec<u8> {
+    fn from(bytes: ByteArray) -> Self {
+        bytes.0
+    }
+}
+
+impl ContextualCodec for ByteArray {
+    fn encode_with_context(
+        &self,
+        writer: &mut impl std::io::Write,
+        context: &Context,
+    ) -> Result<(), CodecError> {
+        let expected = context.array_length().ok_or_else(|| {
+            missing_context(
+                CodecKind::ByteArray,
+                CodecOperation::Write,
+                ContextRequirement::Length,
+            )
+        })?;
+        if self.len() != expected {
+            return Err(CodecError::invalid_encoding_for_operation(
+                CodecKind::ByteArray,
+                CodecOperation::Write,
+                0,
+                InvalidEncodingReason::ArrayLengthMismatch {
+                    expected,
+                    actual: self.len(),
+                },
+            ));
+        }
+
+        write_all_counted(writer, &self.0, CodecKind::ByteArray, 0)
+    }
+
+    fn decode_with_context(
+        reader: &mut impl std::io::Read,
+        context: &Context,
+    ) -> Result<Self, CodecError> {
+        let length = context.array_length().ok_or_else(|| {
+            missing_context(
+                CodecKind::ByteArray,
+                CodecOperation::Read,
+                ContextRequirement::Length,
+            )
+        })?;
+        let mut bytes = vec![0; length];
+        read_exact_counted(reader, &mut bytes, CodecKind::ByteArray, 0)?;
+        Ok(Self(bytes))
     }
 }
 
