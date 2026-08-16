@@ -8,7 +8,8 @@ use mcproto_codec::error::{
 use mcproto_types::{
     TypeCodec,
     basic::{
-        Boolean, Byte, Int, Long, LpVec3, Short, UnsignedByte, UnsignedShort, VarInt, VarLong,
+        Boolean, Byte, Float, Int, Long, LpVec3, Short, UnsignedByte, UnsignedShort, VarInt,
+        VarLong,
     },
 };
 
@@ -75,6 +76,8 @@ codec_case!(
     0,
     [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
 );
+
+codec_case!(float_one_and_a_half, Float, 1.5, [0x3f, 0xc0, 0x00, 0x00]);
 codec_case!(
     long_example,
     Long,
@@ -301,6 +304,7 @@ eof_case!(
 );
 eof_case!(varint_eof, VarInt, VarInt, [], 0);
 eof_case!(varlong_eof, VarLong, VarLong, [], 0);
+eof_case!(float_eof, Float, Float, [0x3f, 0xc0], 2);
 
 struct FailingReader;
 
@@ -337,6 +341,7 @@ read_error_case!(int_read_error, Int, Int);
 read_error_case!(long_read_error, Long, Long);
 read_error_case!(varint_read_error, VarInt, VarInt);
 read_error_case!(varlong_read_error, VarLong, VarLong);
+read_error_case!(float_read_error, Float, Float);
 read_error_case!(lp_vec3_read_error, LpVec3, LpVec3);
 
 struct FailingWriter;
@@ -378,6 +383,7 @@ write_error_case!(int_write_error, Int(0), Int);
 write_error_case!(long_write_error, Long(0), Long);
 write_error_case!(varint_write_error, VarInt(0), VarInt);
 write_error_case!(varlong_write_error, VarLong(0), VarLong);
+write_error_case!(float_write_error, Float(0.0), Float);
 write_error_case!(lp_vec3_write_error, LpVec3::default(), LpVec3);
 
 struct PartialErrorReader {

@@ -163,6 +163,41 @@ impl TypeCodec for Long {
     }
 }
 
+/// A big-endian IEEE-754 single-precision floating-point number.
+///
+/// All bit patterns, including infinities and NaN values, are preserved.
+///
+/// # Examples
+///
+/// ```
+/// use mcproto_types::{Float, TypeCodec};
+///
+/// let mut encoded = Vec::new();
+/// Float(1.5).encode(&mut encoded)?;
+/// assert_eq!(encoded, [0x3f, 0xc0, 0x00, 0x00]);
+///
+/// let mut input = encoded.as_slice();
+/// assert_eq!(Float::decode(&mut input)?, Float(1.5));
+/// # Ok::<(), mcproto_codec::error::CodecError>(())
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Float(
+    /// The floating-point value.
+    pub f32,
+);
+
+impl TypeCodec for Float {
+    fn encode(&self, writer: &mut impl Write) -> Result<(), CodecError> {
+        write_all_counted(writer, &self.0.to_be_bytes(), CodecKind::Float, 0)
+    }
+
+    fn decode(reader: &mut impl Read) -> Result<Self, CodecError> {
+        let mut bytes = [0; 4];
+        read_exact_counted(reader, &mut bytes, CodecKind::Float, 0)?;
+        Ok(Self(f32::from_be_bytes(bytes)))
+    }
+}
+
 /// A UTF-8 string prefixed by its byte length as a VarInt.
 ///
 /// The protocol limits both the UTF-8 payload size and the number of UTF-16

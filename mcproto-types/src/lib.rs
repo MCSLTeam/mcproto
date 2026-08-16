@@ -8,6 +8,7 @@ pub mod component;
 pub mod contextual;
 pub mod json_text_component;
 pub mod nbt;
+pub mod sound_event;
 pub mod text_component;
 
 /// Re-exports all protocol types at the crate root.
@@ -19,6 +20,7 @@ pub use component::*;
 pub use contextual::*;
 pub use json_text_component::*;
 pub use nbt::*;
+pub use sound_event::*;
 pub use text_component::*;
 
 /// Re-export of the [`ProtocolEnum`] derive macro.
