@@ -12,6 +12,7 @@ pub mod contextual;
 pub mod json_text_component;
 pub mod nbt;
 pub mod sound_event;
+pub mod teleport_flags;
 pub mod text_component;
 
 /// Re-exports all protocol types at the crate root.
@@ -25,6 +26,7 @@ pub use contextual::*;
 pub use json_text_component::*;
 pub use nbt::*;
 pub use sound_event::*;
+pub use teleport_flags::*;
 pub use text_component::*;
 
 /// Re-export of the [`ProtocolEnum`] derive macro.

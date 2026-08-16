@@ -59,6 +59,8 @@ pub enum CodecKind {
     Angle,
     /// Three quantized doubles packed with a shared scale factor.
     LpVec3,
+    /// An Int bit field controlling relative teleportation behavior.
+    TeleportFlags,
     /// A named sound with an optional fixed playback range.
     SoundEvent,
     /// A direct chat type containing chat and narration decorations.
@@ -141,6 +143,7 @@ impl fmt::Display for CodecKind {
             Self::Position => formatter.write_str("Position"),
             Self::Angle => formatter.write_str("Angle"),
             Self::LpVec3 => formatter.write_str("LpVec3"),
+            Self::TeleportFlags => formatter.write_str("Teleport Flags"),
             Self::SoundEvent => formatter.write_str("Sound Event"),
             Self::ChatType => formatter.write_str("Chat Type"),
             Self::ChatDecoration => formatter.write_str("Chat Decoration"),
