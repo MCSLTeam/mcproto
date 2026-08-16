@@ -3,7 +3,10 @@
 //! The crate models protocol values and provides their encoding and decoding
 //! through [`TypeCodec`] and [`ContextualCodec`].
 
+extern crate self as mcproto_types;
+
 pub mod basic;
+pub mod chat_type;
 pub mod component;
 pub mod contextual;
 pub mod json_text_component;
@@ -16,6 +19,7 @@ pub mod text_component;
 /// The original module paths remain available, so both
 /// `mcproto_types::basic::VarInt` and `mcproto_types::VarInt` are supported.
 pub use basic::*;
+pub use chat_type::*;
 pub use component::*;
 pub use contextual::*;
 pub use json_text_component::*;

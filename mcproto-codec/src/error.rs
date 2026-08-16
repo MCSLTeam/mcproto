@@ -61,6 +61,10 @@ pub enum CodecKind {
     LpVec3,
     /// A named sound with an optional fixed playback range.
     SoundEvent,
+    /// A direct chat type containing chat and narration decorations.
+    ChatType,
+    /// A chat type decoration containing a translation key, parameters, and style.
+    ChatDecoration,
     /// A 128-bit universally unique identifier.
     Uuid,
     /// A length-prefixed bit set of packed 64-bit words.
@@ -138,6 +142,8 @@ impl fmt::Display for CodecKind {
             Self::Angle => formatter.write_str("Angle"),
             Self::LpVec3 => formatter.write_str("LpVec3"),
             Self::SoundEvent => formatter.write_str("Sound Event"),
+            Self::ChatType => formatter.write_str("Chat Type"),
+            Self::ChatDecoration => formatter.write_str("Chat Decoration"),
             Self::Uuid => formatter.write_str("UUID"),
             Self::BitSet => formatter.write_str("BitSet"),
             Self::FixedBitSet => formatter.write_str("Fixed BitSet"),

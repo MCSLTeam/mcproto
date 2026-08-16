@@ -3,7 +3,7 @@
 use mcproto_codec::error::{CodecErrorKind, CodecKind, CodecOperation, InvalidEncodingReason};
 use mcproto_types::{TypeCodec, basic::Identifier};
 
-#[test] 
+#[test]
 fn valid_identifiers_roundtrip() {
     for value in [
         "stone",
