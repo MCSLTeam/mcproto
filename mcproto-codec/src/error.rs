@@ -119,6 +119,18 @@ pub enum CodecKind {
     RecipeDisplay,
     /// A shaped recipe's dimensions and rectangular ingredient array.
     ShapedRecipeGrid,
+    /// A terminated sequence of indexed entity metadata values.
+    EntityMetadata,
+    /// One indexed value in an entity metadata sequence.
+    EntityMetadataEntry,
+    /// A value selected by an entity metadata type ID.
+    EntityMetadataValue,
+    /// A particle type ID and its type-specific payload.
+    Particle,
+    /// A source selected by a vibration particle's position-source type ID.
+    VibrationSource,
+    /// A non-negative ID in a protocol registry.
+    RegistryId,
     /// A sequence whose element count is supplied by protocol context.
     Array,
     /// A raw sequence of bytes whose length is supplied by protocol context.
@@ -215,6 +227,12 @@ impl fmt::Display for CodecKind {
             Self::DebugStructureInfo => formatter.write_str("Debug Structure Info"),
             Self::RecipeDisplay => formatter.write_str("Recipe Display"),
             Self::ShapedRecipeGrid => formatter.write_str("Shaped Recipe Grid"),
+            Self::EntityMetadata => formatter.write_str("Entity Metadata"),
+            Self::EntityMetadataEntry => formatter.write_str("Entity Metadata Entry"),
+            Self::EntityMetadataValue => formatter.write_str("Entity Metadata Value"),
+            Self::Particle => formatter.write_str("Particle"),
+            Self::VibrationSource => formatter.write_str("Vibration Source"),
+            Self::RegistryId => formatter.write_str("Registry ID"),
             Self::Array => formatter.write_str("Array"),
             Self::ByteArray => formatter.write_str("Byte Array"),
             Self::PrefixedArray => formatter.write_str("Prefixed Array"),
@@ -318,6 +336,21 @@ pub enum InvalidEncodingReason {
         value: i32,
         /// The greatest registry ID supported by the enclosing wire format.
         max: i32,
+    },
+    /// An entity metadata entry uses the reserved `0xff` terminator as its index.
+    InvalidEntityMetadataIndex {
+        /// The invalid entry index.
+        index: u8,
+    },
+    /// An entity metadata sequence contains the same index more than once.
+    DuplicateEntityMetadataIndex {
+        /// The repeated entry index.
+        index: u8,
+    },
+    /// An Optional VarInt selector cannot be mapped to a present value.
+    InvalidOptionalVarInt {
+        /// The invalid selector or in-memory value.
+        value: i32,
     },
     /// The decoded `ID or X` selector is negative.
     InvalidIdOrSelector {
@@ -447,6 +480,16 @@ impl fmt::Display for InvalidEncodingReason {
                 formatter,
                 "registry ID must be between 0 and {max}, got {value}"
             ),
+            Self::InvalidEntityMetadataIndex { index } => write!(
+                formatter,
+                "entity metadata index 0x{index:02X} is reserved as the terminator"
+            ),
+            Self::DuplicateEntityMetadataIndex { index } => {
+                write!(formatter, "duplicate entity metadata index {index}")
+            }
+            Self::InvalidOptionalVarInt { value } => {
+                write!(formatter, "invalid Optional VarInt value: {value}")
+            }
             Self::InvalidIdOrSelector { value } => {
                 write!(formatter, "ID or X selector cannot be negative: {value}")
             }
