@@ -32,3 +32,5 @@ target
 /TODO.md
 
 .agents/
+package.json
+package-lock.json
