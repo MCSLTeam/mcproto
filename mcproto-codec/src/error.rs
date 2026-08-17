@@ -95,6 +95,8 @@ pub enum CodecKind {
     Optional,
     /// An optional value prefixed by an encoded boolean presence marker.
     PrefixedOptional,
+    /// A boolean-selected value of one of two protocol types.
+    Either,
     /// A sequence whose element count is supplied by protocol context.
     Array,
     /// A raw sequence of bytes whose length is supplied by protocol context.
@@ -179,6 +181,7 @@ impl fmt::Display for CodecKind {
             Self::FixedBitSet => formatter.write_str("Fixed BitSet"),
             Self::Optional => formatter.write_str("Optional"),
             Self::PrefixedOptional => formatter.write_str("Prefixed Optional"),
+            Self::Either => formatter.write_str("Either"),
             Self::Array => formatter.write_str("Array"),
             Self::ByteArray => formatter.write_str("Byte Array"),
             Self::PrefixedArray => formatter.write_str("Prefixed Array"),

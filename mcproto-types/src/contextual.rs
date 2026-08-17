@@ -822,6 +822,132 @@ where
     }
 }
 
+/// A boolean-selected value of protocol type `X` or `Y`.
+///
+/// The wire representation begins with a [`Boolean`]. A true marker is
+/// followed by an `X` value, while a false marker is followed by a `Y` value:
+///
+/// ```text
+/// 0x01 + X
+/// 0x00 + Y
+/// ```
+///
+/// Both branch types must implement [`TypeCodec`]. The enum variant binds the
+/// marker to the matching payload, so an in-memory marker/payload mismatch
+/// cannot be represented.
+///
+/// # Examples
+///
+/// ```
+/// use mcproto_types::{Either, TypeCodec, UnsignedByte, VarInt};
+///
+/// let x = Either::<UnsignedByte, VarInt>::X(UnsignedByte(0xab));
+/// let mut encoded = Vec::new();
+/// x.encode(&mut encoded)?;
+/// assert_eq!(encoded, [0x01, 0xab]);
+/// assert_eq!(Either::decode(&mut encoded.as_slice())?, x);
+///
+/// let y = Either::<UnsignedByte, VarInt>::Y(VarInt(25565));
+/// let mut encoded = Vec::new();
+/// y.encode(&mut encoded)?;
+/// assert_eq!(encoded, [0x00, 0xdd, 0xc7, 0x01]);
+/// # Ok::<(), mcproto_codec::error::CodecError>(())
+/// ```
+///
+/// See the official [Either X or Y] protocol documentation.
+///
+/// [Either X or Y]: https://minecraft.wiki/w/Java_Edition_protocol/Packets#Either
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Either<X, Y> {
+    /// An `X` payload, prefixed by a true boolean.
+    X(X),
+    /// A `Y` payload, prefixed by a false boolean.
+    Y(Y),
+}
+
+impl<X, Y> Either<X, Y> {
+    /// Returns whether this value contains an `X` payload.
+    #[must_use]
+    pub const fn is_x(&self) -> bool {
+        matches!(self, Self::X(_))
+    }
+
+    /// Returns whether this value contains a `Y` payload.
+    #[must_use]
+    pub const fn is_y(&self) -> bool {
+        matches!(self, Self::Y(_))
+    }
+
+    /// Borrows the selected payload while retaining its branch.
+    #[must_use]
+    pub const fn as_ref(&self) -> Either<&X, &Y> {
+        match self {
+            Self::X(value) => Either::X(value),
+            Self::Y(value) => Either::Y(value),
+        }
+    }
+
+    /// Extracts the `X` payload, returning `None` for the `Y` branch.
+    #[must_use]
+    pub fn into_x(self) -> Option<X> {
+        match self {
+            Self::X(value) => Some(value),
+            Self::Y(_) => None,
+        }
+    }
+
+    /// Extracts the `Y` payload, returning `None` for the `X` branch.
+    #[must_use]
+    pub fn into_y(self) -> Option<Y> {
+        match self {
+            Self::X(_) => None,
+            Self::Y(value) => Some(value),
+        }
+    }
+}
+
+impl<X, Y> TypeCodec for Either<X, Y>
+where
+    X: TypeCodec,
+    Y: TypeCodec,
+{
+    fn encode(&self, writer: &mut impl std::io::Write) -> Result<(), CodecError> {
+        match self {
+            Self::X(value) => {
+                Boolean(true)
+                    .encode(writer)
+                    .map_err(|error| error.with_context(CodecKind::Either))?;
+                value
+                    .encode(writer)
+                    .map_err(|error| error.with_context(CodecKind::Either))
+            }
+            Self::Y(value) => {
+                Boolean(false)
+                    .encode(writer)
+                    .map_err(|error| error.with_context(CodecKind::Either))?;
+                value
+                    .encode(writer)
+                    .map_err(|error| error.with_context(CodecKind::Either))
+            }
+        }
+    }
+
+    fn decode(reader: &mut impl std::io::Read) -> Result<Self, CodecError> {
+        if Boolean::decode(reader)
+            .map_err(|error| error.with_context(CodecKind::Either))?
+            .0
+        {
+            X::decode(reader)
+                .map(Self::X)
+                .map_err(|error| error.with_context(CodecKind::Either))
+        } else {
+            Y::decode(reader)
+                .map(Self::Y)
+                .map_err(|error| error.with_context(CodecKind::Either))
+        }
+    }
+}
+
 /// A protocol value represented either by registry ID or by an inline `T`.
 ///
 /// The [Minecraft protocol ID or X] wire representation begins with a
