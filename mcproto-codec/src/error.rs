@@ -105,6 +105,16 @@ pub enum CodecKind {
     ResolvableProfile,
     /// The unresolved identity fields of a resolvable profile.
     PartialProfile,
+    /// A typed debug subscription event.
+    DebugSubscriptionEvent,
+    /// A typed debug subscription update.
+    DebugSubscriptionUpdate,
+    /// A payload selected by a debug subscription type.
+    DebugSubscriptionData,
+    /// One pathfinding node in debug subscription data.
+    DebugPathNode,
+    /// Structure and piece bounding boxes in debug subscription data.
+    DebugStructureInfo,
     /// A sequence whose element count is supplied by protocol context.
     Array,
     /// A raw sequence of bytes whose length is supplied by protocol context.
@@ -194,6 +204,11 @@ impl fmt::Display for CodecKind {
             Self::GameProfileProperty => formatter.write_str("Game Profile Property"),
             Self::ResolvableProfile => formatter.write_str("Resolvable Profile"),
             Self::PartialProfile => formatter.write_str("Partial Profile"),
+            Self::DebugSubscriptionEvent => formatter.write_str("Debug Subscription Event"),
+            Self::DebugSubscriptionUpdate => formatter.write_str("Debug Subscription Update"),
+            Self::DebugSubscriptionData => formatter.write_str("Debug Subscription Data"),
+            Self::DebugPathNode => formatter.write_str("Debug Path Node"),
+            Self::DebugStructureInfo => formatter.write_str("Debug Structure Info"),
             Self::Array => formatter.write_str("Array"),
             Self::ByteArray => formatter.write_str("Byte Array"),
             Self::PrefixedArray => formatter.write_str("Prefixed Array"),
