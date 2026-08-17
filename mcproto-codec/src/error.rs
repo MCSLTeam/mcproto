@@ -51,6 +51,8 @@ pub enum CodecKind {
     Long,
     /// A big-endian IEEE-754 single-precision floating-point number.
     Float,
+    /// A big-endian IEEE-754 double-precision floating-point number.
+    Double,
     /// A block position packed into a 64-bit integer.
     ///
     /// The x, z, and y coordinates occupy 26, 26, and 12 bits respectively.
@@ -67,6 +69,16 @@ pub enum CodecKind {
     ChatType,
     /// A chat type decoration containing a translation key, parameters, and style.
     ChatDecoration,
+    /// A structure encoded field-by-field in declaration order.
+    TypeStruct,
+    /// An inventory item stack and its data component patch.
+    Slot,
+    /// A typed data component attached to an item stack.
+    DataComponent,
+    /// The payload of a typed data component.
+    StructuredComponent,
+    /// A typed, potentially recursive recipe slot display.
+    SlotDisplay,
     /// A 128-bit universally unique identifier.
     Uuid,
     /// A length-prefixed bit set of packed 64-bit words.
@@ -140,6 +152,7 @@ impl fmt::Display for CodecKind {
             Self::Int => formatter.write_str("Int"),
             Self::Long => formatter.write_str("Long"),
             Self::Float => formatter.write_str("Float"),
+            Self::Double => formatter.write_str("Double"),
             Self::Position => formatter.write_str("Position"),
             Self::Angle => formatter.write_str("Angle"),
             Self::LpVec3 => formatter.write_str("LpVec3"),
@@ -147,6 +160,11 @@ impl fmt::Display for CodecKind {
             Self::SoundEvent => formatter.write_str("Sound Event"),
             Self::ChatType => formatter.write_str("Chat Type"),
             Self::ChatDecoration => formatter.write_str("Chat Decoration"),
+            Self::TypeStruct => formatter.write_str("Type Struct"),
+            Self::Slot => formatter.write_str("Slot"),
+            Self::DataComponent => formatter.write_str("Data Component"),
+            Self::StructuredComponent => formatter.write_str("Structured Component"),
+            Self::SlotDisplay => formatter.write_str("Slot Display"),
             Self::Uuid => formatter.write_str("UUID"),
             Self::BitSet => formatter.write_str("BitSet"),
             Self::FixedBitSet => formatter.write_str("Fixed BitSet"),
@@ -266,6 +284,11 @@ pub enum InvalidEncodingReason {
         /// The invalid type value read from the wire.
         value: i32,
     },
+    /// A Slot item count must be zero for empty or positive for a stack.
+    InvalidSlotCount {
+        /// The invalid count.
+        value: i64,
+    },
     /// The packed byte array does not have the required fixed length.
     InvalidFixedBitSetLength {
         /// The expected number of packed bytes.
@@ -384,6 +407,13 @@ impl fmt::Display for InvalidEncodingReason {
             }
             Self::InvalidIdSetType { value } => {
                 write!(formatter, "ID Set type cannot be negative: {value}")
+            }
+            Self::InvalidSlotCount { value } => {
+                write!(
+                    formatter,
+                    "invalid Slot item count {value}; empty slots use 0 and item stacks require 1..={}",
+                    i32::MAX
+                )
             }
             Self::InvalidFixedBitSetLength { expected, actual } => write!(
                 formatter,

@@ -19,6 +19,7 @@ repository = "https://github.com/MCSLTeam/mcproto"
 fastnbt = "2.6.3"
 base64 = "0.23.1"
 bitflags = "2.13.1"
+cesu8 = "1.1.0"
 getrandom = "0.4.3"
 mcproto-codec = { version = "0.4.0", path = "mcproto-codec" }
 mcproto-derive = { version = "0.4.0", path = "mcproto-derive" }

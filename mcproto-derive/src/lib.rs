@@ -2,7 +2,147 @@
 
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{Data, DeriveInput, Error, Fields, Result, Type, parse_macro_input};
+use syn::{
+    Data, DeriveInput, Error, Fields, Ident, Index, Member, Result, Type, parse_macro_input,
+    parse_quote,
+};
+
+/// Derives [`mcproto_types::TypeCodec`] for a protocol structure.
+///
+/// Fields are encoded and decoded in declaration order. A codec kind must be
+/// supplied so errors from individual fields retain the enclosing structure:
+///
+/// ```ignore
+/// #[derive(TypeStructCodec)]
+/// #[type_struct_codec(kind = Slot)]
+/// struct Item {
+///     id: VarInt,
+///     count: VarInt,
+/// }
+/// ```
+#[proc_macro_derive(TypeStructCodec, attributes(type_struct_codec))]
+pub fn derive_type_struct_codec(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    match expand_type_struct_codec(&input) {
+        Ok(tokens) => tokens.into(),
+        Err(error) => error.into_compile_error().into(),
+    }
+}
+
+fn expand_type_struct_codec(input: &DeriveInput) -> Result<proc_macro2::TokenStream> {
+    let Data::Struct(data) = &input.data else {
+        return Err(Error::new_spanned(
+            input,
+            "TypeStructCodec can only be derived for structs",
+        ));
+    };
+    let kind = type_struct_codec_kind(input)?;
+    let name = &input.ident;
+
+    let fields: Vec<(Member, &Type)> = match &data.fields {
+        Fields::Named(fields) => fields
+            .named
+            .iter()
+            .map(|field| {
+                (
+                    Member::Named(field.ident.clone().expect("named field")),
+                    &field.ty,
+                )
+            })
+            .collect(),
+        Fields::Unnamed(fields) => fields
+            .unnamed
+            .iter()
+            .enumerate()
+            .map(|(index, field)| (Member::Unnamed(Index::from(index)), &field.ty))
+            .collect(),
+        Fields::Unit => Vec::new(),
+    };
+
+    let mut bounded_generics = input.generics.clone();
+    for (_, field_type) in &fields {
+        bounded_generics
+            .make_where_clause()
+            .predicates
+            .push(parse_quote!(#field_type: ::mcproto_types::TypeCodec));
+    }
+    let (impl_generics, _, where_clause) = bounded_generics.split_for_impl();
+    let (_, type_generics, _) = input.generics.split_for_impl();
+
+    let encode_fields = fields.iter().map(|(member, _)| {
+        quote! {
+            ::mcproto_types::TypeCodec::encode(&self.#member, writer)
+                .map_err(|error| error.with_context(
+                    ::mcproto_types::__private::CodecKind::#kind,
+                ))?;
+        }
+    });
+    let decode_fields: Vec<_> = fields
+        .iter()
+        .map(|(_, field_type)| {
+            quote! {
+                <#field_type as ::mcproto_types::TypeCodec>::decode(reader)
+                    .map_err(|error| error.with_context(
+                        ::mcproto_types::__private::CodecKind::#kind,
+                    ))?
+            }
+        })
+        .collect();
+    let construct = match &data.fields {
+        Fields::Named(fields) => {
+            let names = fields
+                .named
+                .iter()
+                .map(|field| field.ident.as_ref().unwrap());
+            quote! { Self { #(#names: #decode_fields,)* } }
+        }
+        Fields::Unnamed(_) => quote! { Self(#(#decode_fields,)*) },
+        Fields::Unit => quote! { Self },
+    };
+
+    Ok(quote! {
+        impl #impl_generics ::mcproto_types::TypeCodec for #name #type_generics #where_clause {
+            fn encode(
+                &self,
+                writer: &mut impl ::std::io::Write,
+            ) -> ::std::result::Result<(), ::mcproto_types::__private::CodecError> {
+                #(#encode_fields)*
+                ::std::result::Result::Ok(())
+            }
+
+            fn decode(
+                reader: &mut impl ::std::io::Read,
+            ) -> ::std::result::Result<Self, ::mcproto_types::__private::CodecError> {
+                ::std::result::Result::Ok(#construct)
+            }
+        }
+    })
+}
+
+fn type_struct_codec_kind(input: &DeriveInput) -> Result<Ident> {
+    let mut kind = None;
+    for attribute in &input.attrs {
+        if !attribute.path().is_ident("type_struct_codec") {
+            continue;
+        }
+        attribute.parse_nested_meta(|meta| {
+            if !meta.path.is_ident("kind") {
+                return Err(meta.error("expected `kind = CodecKindVariant`"));
+            }
+            if kind.is_some() {
+                return Err(meta.error("duplicate `kind` argument"));
+            }
+            kind = Some(meta.value()?.parse()?);
+            Ok(())
+        })?;
+    }
+    kind.ok_or_else(|| {
+        Error::new_spanned(
+            input,
+            "TypeStructCodec requires `#[type_struct_codec(kind = CodecKindVariant)]`",
+        )
+    })
+}
 
 /// Derives [`mcproto_types::ProtocolEnum`] and [`mcproto_types::TypeCodec`] for
 /// a fieldless enum with a numeric protocol representation.

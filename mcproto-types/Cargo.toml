@@ -12,6 +12,7 @@ categories = ["network-programming", "game-development"]
 
 [dependencies]
 bitflags.workspace = true
+cesu8.workspace = true
 fastnbt.workspace = true
 mcproto-codec.workspace = true
 mcproto-derive.workspace = true

@@ -22,3 +22,20 @@ GameMode::Creative.encode(&mut encoded)?;
 assert_eq!(encoded, [0x01]);
 # Ok::<(), mcproto_codec::error::CodecError>(())
 ```
+
+## `TypeStructCodec`
+
+`TypeStructCodec` derives a sequential [`TypeCodec`] implementation for named,
+tuple, unit, and generic structs. Fields are encoded in declaration order and
+must implement `TypeCodec`.
+
+```rust
+use mcproto_types::{TypeStructCodec, VarInt};
+
+#[derive(TypeStructCodec)]
+#[type_struct_codec(kind = TypeStruct)]
+struct Pair {
+    first: VarInt,
+    second: VarInt,
+}
+```

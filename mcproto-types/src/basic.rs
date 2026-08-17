@@ -198,6 +198,25 @@ impl TypeCodec for Float {
     }
 }
 
+/// A big-endian IEEE-754 double-precision floating-point number.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Double(
+    /// The floating-point value.
+    pub f64,
+);
+
+impl TypeCodec for Double {
+    fn encode(&self, writer: &mut impl Write) -> Result<(), CodecError> {
+        write_all_counted(writer, &self.0.to_be_bytes(), CodecKind::Double, 0)
+    }
+
+    fn decode(reader: &mut impl Read) -> Result<Self, CodecError> {
+        let mut bytes = [0; 8];
+        read_exact_counted(reader, &mut bytes, CodecKind::Double, 0)?;
+        Ok(Self(f64::from_be_bytes(bytes)))
+    }
+}
+
 /// A UTF-8 string prefixed by its byte length as a VarInt.
 ///
 /// The protocol limits both the UTF-8 payload size and the number of UTF-16
