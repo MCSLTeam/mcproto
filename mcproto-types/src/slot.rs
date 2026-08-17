@@ -20,11 +20,14 @@ use crate::TypeCodec;
 pub mod components;
 #[path = "slot/display.rs"]
 pub mod display;
+#[path = "slot/hashed.rs"]
+pub mod hashed;
 #[path = "slot/types.rs"]
 pub mod types;
 
 pub use components::*;
 pub use display::*;
+pub use hashed::*;
 pub use types::*;
 
 /// A non-empty item stack carried by a [`Slot`].
@@ -107,8 +110,8 @@ impl TypeCodec for Slot {
         writer
             .write_varint(item.item_id as i32)
             .map_err(|error| error.with_context(CodecKind::Slot))?;
-        write_length(writer, item.components_to_add.len())?;
-        write_length(writer, item.components_to_remove.len())?;
+        write_length(writer, item.components_to_add.len(), CodecKind::Slot)?;
+        write_length(writer, item.components_to_remove.len(), CodecKind::Slot)?;
         for component in &item.components_to_add {
             component
                 .encode(writer)
@@ -129,30 +132,13 @@ impl TypeCodec for Slot {
         if count == 0 {
             return Ok(Self::Empty);
         }
-        if count < 0 {
-            return Err(CodecError::invalid_encoding(
-                CodecKind::Slot,
-                0,
-                InvalidEncodingReason::InvalidSlotCount {
-                    value: i64::from(count),
-                },
-            ));
-        }
+        let count = decode_item_count(count, CodecKind::Slot)?;
         let item_id = reader
             .read_varint()
             .map_err(|error| error.with_context(CodecKind::Slot))?;
-        if item_id < 0 {
-            return Err(CodecError::invalid_encoding(
-                CodecKind::Slot,
-                0,
-                InvalidEncodingReason::InvalidRegistryId {
-                    value: item_id,
-                    max: i32::MAX,
-                },
-            ));
-        }
-        let add_count = read_length(reader)?;
-        let remove_count = read_length(reader)?;
+        let item_id = decode_item_id(item_id, CodecKind::Slot)?;
+        let add_count = read_length(reader, CodecKind::Slot)?;
+        let remove_count = read_length(reader, CodecKind::Slot)?;
         let mut components_to_add = Vec::with_capacity(add_count.min(1024));
         for _ in 0..add_count {
             components_to_add.push(
@@ -168,8 +154,8 @@ impl TypeCodec for Slot {
             );
         }
         Ok(Self::Item(ItemStack {
-            count: count as u32,
-            item_id: item_id as u32,
+            count,
+            item_id,
             components_to_add,
             components_to_remove,
         }))
@@ -177,23 +163,31 @@ impl TypeCodec for Slot {
 }
 
 fn validate_item(item: &ItemStack) -> Result<(), CodecError> {
-    if item.count == 0 || item.count > i32::MAX as u32 {
+    validate_item_fields(item.count, item.item_id, CodecKind::Slot)
+}
+
+pub(super) fn validate_item_fields(
+    count: u32,
+    item_id: u32,
+    kind: CodecKind,
+) -> Result<(), CodecError> {
+    if count == 0 || count > i32::MAX as u32 {
         return Err(CodecError::invalid_encoding_for_operation(
-            CodecKind::Slot,
+            kind,
             CodecOperation::Write,
             0,
             InvalidEncodingReason::InvalidSlotCount {
-                value: i64::from(item.count),
+                value: i64::from(count),
             },
         ));
     }
-    if item.item_id > i32::MAX as u32 {
+    if item_id > i32::MAX as u32 {
         return Err(CodecError::invalid_encoding_for_operation(
-            CodecKind::Slot,
+            kind,
             CodecOperation::Write,
             0,
             InvalidEncodingReason::InvalidRegistryId {
-                value: item.item_id as i32,
+                value: item_id as i32,
                 max: i32::MAX,
             },
         ));
@@ -201,10 +195,14 @@ fn validate_item(item: &ItemStack) -> Result<(), CodecError> {
     Ok(())
 }
 
-fn write_length(writer: &mut impl Write, length: usize) -> Result<(), CodecError> {
+pub(super) fn write_length(
+    writer: &mut impl Write,
+    length: usize,
+    kind: CodecKind,
+) -> Result<(), CodecError> {
     let length = i32::try_from(length).map_err(|_| {
         CodecError::invalid_encoding_for_operation(
-            CodecKind::Slot,
+            kind,
             CodecOperation::Write,
             0,
             InvalidEncodingReason::LengthOutOfRange {
@@ -215,20 +213,43 @@ fn write_length(writer: &mut impl Write, length: usize) -> Result<(), CodecError
     })?;
     writer
         .write_varint(length)
-        .map_err(|error| error.with_context(CodecKind::Slot))
+        .map_err(|error| error.with_context(kind))
 }
 
-fn read_length(reader: &mut impl Read) -> Result<usize, CodecError> {
+pub(super) fn read_length(reader: &mut impl Read, kind: CodecKind) -> Result<usize, CodecError> {
     let value = reader
         .read_varint()
-        .map_err(|error| error.with_context(CodecKind::Slot))?;
+        .map_err(|error| error.with_context(kind))?;
     usize::try_from(value).map_err(|_| {
-        CodecError::invalid_encoding(
-            CodecKind::Slot,
-            0,
-            InvalidEncodingReason::NegativeLength { value },
-        )
+        CodecError::invalid_encoding(kind, 0, InvalidEncodingReason::NegativeLength { value })
     })
+}
+
+pub(super) fn decode_item_count(value: i32, kind: CodecKind) -> Result<u32, CodecError> {
+    if value <= 0 {
+        return Err(CodecError::invalid_encoding(
+            kind,
+            0,
+            InvalidEncodingReason::InvalidSlotCount {
+                value: i64::from(value),
+            },
+        ));
+    }
+    Ok(value as u32)
+}
+
+pub(super) fn decode_item_id(value: i32, kind: CodecKind) -> Result<u32, CodecError> {
+    if value < 0 {
+        return Err(CodecError::invalid_encoding(
+            kind,
+            0,
+            InvalidEncodingReason::InvalidRegistryId {
+                value,
+                max: i32::MAX,
+            },
+        ));
+    }
+    Ok(value as u32)
 }
 
 /// Error returned when constructing an invalid non-empty item stack.

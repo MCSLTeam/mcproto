@@ -73,6 +73,8 @@ pub enum CodecKind {
     TypeStruct,
     /// An inventory item stack and its data component patch.
     Slot,
+    /// An optional item stack whose added component values are CRC32C hashes.
+    HashedSlot,
     /// A typed data component attached to an item stack.
     DataComponent,
     /// The payload of a typed data component.
@@ -162,6 +164,7 @@ impl fmt::Display for CodecKind {
             Self::ChatDecoration => formatter.write_str("Chat Decoration"),
             Self::TypeStruct => formatter.write_str("Type Struct"),
             Self::Slot => formatter.write_str("Slot"),
+            Self::HashedSlot => formatter.write_str("Hashed Slot"),
             Self::DataComponent => formatter.write_str("Data Component"),
             Self::StructuredComponent => formatter.write_str("Structured Component"),
             Self::SlotDisplay => formatter.write_str("Slot Display"),
@@ -284,7 +287,7 @@ pub enum InvalidEncodingReason {
         /// The invalid type value read from the wire.
         value: i32,
     },
-    /// A Slot item count must be zero for empty or positive for a stack.
+    /// A non-empty item stack count must fit a positive VarInt.
     InvalidSlotCount {
         /// The invalid count.
         value: i64,
@@ -411,7 +414,7 @@ impl fmt::Display for InvalidEncodingReason {
             Self::InvalidSlotCount { value } => {
                 write!(
                     formatter,
-                    "invalid Slot item count {value}; empty slots use 0 and item stacks require 1..={}",
+                    "invalid item-stack count {value}; expected 1..={}",
                     i32::MAX
                 )
             }
