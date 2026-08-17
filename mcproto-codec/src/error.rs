@@ -97,6 +97,14 @@ pub enum CodecKind {
     PrefixedOptional,
     /// A boolean-selected value of one of two protocol types.
     Either,
+    /// A UUID, username, and bounded list of profile properties.
+    GameProfile,
+    /// One name, value, and optional signature in a game profile.
+    GameProfileProperty,
+    /// A partial or complete game profile with optional skin overrides.
+    ResolvableProfile,
+    /// The unresolved identity fields of a resolvable profile.
+    PartialProfile,
     /// A sequence whose element count is supplied by protocol context.
     Array,
     /// A raw sequence of bytes whose length is supplied by protocol context.
@@ -182,6 +190,10 @@ impl fmt::Display for CodecKind {
             Self::Optional => formatter.write_str("Optional"),
             Self::PrefixedOptional => formatter.write_str("Prefixed Optional"),
             Self::Either => formatter.write_str("Either"),
+            Self::GameProfile => formatter.write_str("Game Profile"),
+            Self::GameProfileProperty => formatter.write_str("Game Profile Property"),
+            Self::ResolvableProfile => formatter.write_str("Resolvable Profile"),
+            Self::PartialProfile => formatter.write_str("Partial Profile"),
             Self::Array => formatter.write_str("Array"),
             Self::ByteArray => formatter.write_str("Byte Array"),
             Self::PrefixedArray => formatter.write_str("Prefixed Array"),

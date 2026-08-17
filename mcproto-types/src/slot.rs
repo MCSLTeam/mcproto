@@ -30,6 +30,10 @@ pub use display::*;
 pub use hashed::*;
 pub use types::*;
 
+// Keep the established `slot::*` paths while using the canonical profile
+// implementation owned by the profile module.
+pub use crate::profile::{PartialProfile, ResolvableProfile, ResolvableProfileData, SkinModel};
+
 /// A non-empty item stack carried by a [`Slot`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct ItemStack {

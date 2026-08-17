@@ -10,7 +10,7 @@ use mcproto_codec::{
 use crate::{
     Boolean, Double, Float, IdOr, IdSet, Identifier, Int, Nbt, Position, PrefixedArray,
     PrefixedOptional, PrefixedString, ProtocolEnum, SoundEvent, TextComponent, TypeCodec,
-    TypeStructCodec, Uuid, VarInt,
+    TypeStructCodec, VarInt,
 };
 
 use super::DataComponent;
@@ -314,88 +314,8 @@ Bee {
 });
 protocol_struct!(/// A dimension and block position.
     GlobalPosition { dimension: Identifier, position: Position });
-protocol_struct!(/// A game profile property used by Slot components.
-    SlotProfileProperty {
-    name: PrefixedString,
-    value: PrefixedString,
-    signature: PrefixedOptional<PrefixedString>,
-});
-protocol_struct!(/// A complete game profile.
-GameProfile {
-    uuid: Uuid,
-    username: PrefixedString,
-        properties: PrefixedArray<SlotProfileProperty>,
-});
-protocol_struct!(/// A partial game profile.
-PartialProfile {
-    username: PrefixedOptional<PrefixedString>,
-    uuid: PrefixedOptional<Uuid>,
-        properties: PrefixedArray<SlotProfileProperty>,
-});
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ProtocolEnum)]
-#[protocol_enum(repr = VarInt)]
-pub enum SkinModel {
-    Wide = 0,
-    Slim = 1,
-}
-
-/// Profile data followed by optional texture overrides.
-#[derive(Debug, Clone, PartialEq)]
-pub struct ResolvableProfile {
-    pub profile: ResolvableProfileData,
-    pub body: PrefixedOptional<Identifier>,
-    pub cape: PrefixedOptional<Identifier>,
-    pub elytra: PrefixedOptional<Identifier>,
-    pub model: PrefixedOptional<SkinModel>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum ResolvableProfileData {
-    Partial(PartialProfile),
-    Complete(GameProfile),
-}
-
-impl TypeCodec for ResolvableProfile {
-    fn encode(&self, writer: &mut impl Write) -> Result<(), CodecError> {
-        match &self.profile {
-            ResolvableProfileData::Partial(value) => {
-                VarInt(0).encode(writer)?;
-                value.encode(writer)?;
-            }
-            ResolvableProfileData::Complete(value) => {
-                VarInt(1).encode(writer)?;
-                value.encode(writer)?;
-            }
-        }
-        self.body.encode(writer)?;
-        self.cape.encode(writer)?;
-        self.elytra.encode(writer)?;
-        self.model.encode(writer)
-    }
-    fn decode(reader: &mut impl Read) -> Result<Self, CodecError> {
-        let profile = match VarInt::decode(reader)?.0 {
-            0 => ResolvableProfileData::Partial(PartialProfile::decode(reader)?),
-            1 => ResolvableProfileData::Complete(GameProfile::decode(reader)?),
-            value => {
-                return Err(CodecError::invalid_encoding(
-                    CodecKind::StructuredComponent,
-                    0,
-                    InvalidEncodingReason::InvalidEnumValue {
-                        value: i128::from(value),
-                    },
-                ));
-            }
-        };
-        Ok(Self {
-            profile,
-            body: PrefixedOptional::decode(reader)?,
-            cape: PrefixedOptional::decode(reader)?,
-            elytra: PrefixedOptional::decode(reader)?,
-            model: PrefixedOptional::decode(reader)?,
-        })
-    }
-}
+/// Backwards-compatible name for a property used by Slot profile components.
+pub type SlotProfileProperty = crate::GameProfileProperty;
 
 protocol_struct!(/// Inline painting variant data.
 PaintingVariant {

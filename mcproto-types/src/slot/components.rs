@@ -9,7 +9,7 @@ use crate::{
     PrefixedString, ProtocolEnum, SoundEvent, TextComponent, TypeCodec, TypeStructCodec, VarInt,
 };
 
-use super::{Slot, types::*};
+use super::{ResolvableProfile, Slot, types::*};
 
 macro_rules! component_struct {
     ($name:ident) => {
