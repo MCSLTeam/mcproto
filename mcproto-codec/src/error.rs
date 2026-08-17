@@ -115,6 +115,10 @@ pub enum CodecKind {
     DebugPathNode,
     /// Structure and piece bounding boxes in debug subscription data.
     DebugStructureInfo,
+    /// A typed client recipe display.
+    RecipeDisplay,
+    /// A shaped recipe's dimensions and rectangular ingredient array.
+    ShapedRecipeGrid,
     /// A sequence whose element count is supplied by protocol context.
     Array,
     /// A raw sequence of bytes whose length is supplied by protocol context.
@@ -209,6 +213,8 @@ impl fmt::Display for CodecKind {
             Self::DebugSubscriptionData => formatter.write_str("Debug Subscription Data"),
             Self::DebugPathNode => formatter.write_str("Debug Path Node"),
             Self::DebugStructureInfo => formatter.write_str("Debug Structure Info"),
+            Self::RecipeDisplay => formatter.write_str("Recipe Display"),
+            Self::ShapedRecipeGrid => formatter.write_str("Shaped Recipe Grid"),
             Self::Array => formatter.write_str("Array"),
             Self::ByteArray => formatter.write_str("Byte Array"),
             Self::PrefixedArray => formatter.write_str("Prefixed Array"),
