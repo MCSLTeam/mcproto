@@ -81,6 +81,10 @@ pub enum CodecKind {
     StructuredComponent,
     /// A typed, potentially recursive recipe slot display.
     SlotDisplay,
+    /// Chunk-section sky and block lighting masks and arrays.
+    LightData,
+    /// Exactly 2048 packed bytes containing 4096 four-bit light values.
+    LightArray,
     /// A 128-bit universally unique identifier.
     Uuid,
     /// A length-prefixed bit set of packed 64-bit words.
@@ -168,6 +172,8 @@ impl fmt::Display for CodecKind {
             Self::DataComponent => formatter.write_str("Data Component"),
             Self::StructuredComponent => formatter.write_str("Structured Component"),
             Self::SlotDisplay => formatter.write_str("Slot Display"),
+            Self::LightData => formatter.write_str("Light Data"),
+            Self::LightArray => formatter.write_str("Light Array"),
             Self::Uuid => formatter.write_str("UUID"),
             Self::BitSet => formatter.write_str("BitSet"),
             Self::FixedBitSet => formatter.write_str("Fixed BitSet"),
