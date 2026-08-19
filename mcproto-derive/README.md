@@ -1,6 +1,28 @@
 # mcproto-derive
 
-Derive macros for `mcproto-types`.
+Derive macros for `mcproto-types` and `mcproto-network`.
+
+## `PacketCodec`
+
+`PacketCodec` implements static `Packet` metadata plus direction-specific body
+coding for a specific protocol version. Serverbound packets implement
+`EncodePacket`; clientbound packets implement `DecodePacket`:
+
+```rust
+use mcproto_network::PacketCodec;
+use mcproto_types::VarInt;
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "example",
+    id = 0x01,
+    state = Play,
+    direction = Clientbound,
+)]
+struct ExamplePacket {
+    value: VarInt,
+}
+```
 
 ## `ProtocolEnum`
 

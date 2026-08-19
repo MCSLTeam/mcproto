@@ -378,6 +378,115 @@ impl TypeCodec for PrefixedString {
     }
 }
 
+/// A VarInt-length-prefixed string with a field-specific UTF-16 length limit.
+#[repr(transparent)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub struct BoundedString<const MAX_CODE_UNITS: usize>(String);
+
+impl<const MAX_CODE_UNITS: usize> BoundedString<MAX_CODE_UNITS> {
+    /// Maximum number of UTF-16 code units accepted by this string type.
+    pub const MAX_UTF16_CODE_UNITS: usize = MAX_CODE_UNITS;
+    /// Maximum UTF-8 payload size accepted by this string type.
+    pub const MAX_BYTES: usize = MAX_CODE_UNITS.saturating_mul(3);
+
+    /// Creates a string after checking its field-specific length limit.
+    pub fn new(value: impl Into<String>) -> Result<Self, BoundedStringTooLong> {
+        let value = value.into();
+        let actual_code_units = value.encode_utf16().count();
+        if actual_code_units > MAX_CODE_UNITS {
+            return Err(BoundedStringTooLong {
+                max_code_units: MAX_CODE_UNITS,
+                actual_code_units,
+            });
+        }
+        Ok(Self(value))
+    }
+
+    /// Returns the string value.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Extracts the owned string.
+    #[must_use]
+    pub fn into_inner(self) -> String {
+        self.0
+    }
+}
+
+impl<const MAX_CODE_UNITS: usize> AsRef<str> for BoundedString<MAX_CODE_UNITS> {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl<const MAX_CODE_UNITS: usize> fmt::Display for BoundedString<MAX_CODE_UNITS> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl<const MAX_CODE_UNITS: usize> TryFrom<String> for BoundedString<MAX_CODE_UNITS> {
+    type Error = BoundedStringTooLong;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
+impl<const MAX_CODE_UNITS: usize> TryFrom<&str> for BoundedString<MAX_CODE_UNITS> {
+    type Error = BoundedStringTooLong;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
+impl<const MAX_CODE_UNITS: usize> From<BoundedString<MAX_CODE_UNITS>> for String {
+    fn from(value: BoundedString<MAX_CODE_UNITS>) -> Self {
+        value.into_inner()
+    }
+}
+
+impl<const MAX_CODE_UNITS: usize> TypeCodec for BoundedString<MAX_CODE_UNITS> {
+    fn encode(&self, writer: &mut impl Write) -> Result<(), CodecError> {
+        encode_prefixed_string(
+            &self.0,
+            writer,
+            CodecKind::String,
+            Self::MAX_BYTES,
+            MAX_CODE_UNITS,
+        )
+    }
+
+    fn decode(reader: &mut impl Read) -> Result<Self, CodecError> {
+        decode_prefixed_string(reader, CodecKind::String, Self::MAX_BYTES, MAX_CODE_UNITS)
+            .map(|(value, _)| Self(value))
+    }
+}
+
+/// Error returned when a [`BoundedString`] exceeds its field-specific limit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct BoundedStringTooLong {
+    /// Maximum permitted number of UTF-16 code units.
+    pub max_code_units: usize,
+    /// Number of UTF-16 code units in the rejected value.
+    pub actual_code_units: usize,
+}
+
+impl fmt::Display for BoundedStringTooLong {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "string contains {} UTF-16 code units; maximum is {}",
+            self.actual_code_units, self.max_code_units
+        )
+    }
+}
+
+impl std::error::Error for BoundedStringTooLong {}
+
 /// A resource identifier encoded as a [`PrefixedString`].
 ///
 /// The namespace permits `[a-z0-9._-]`; the value permits
