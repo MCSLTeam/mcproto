@@ -1,0 +1,16 @@
+[package]
+name = "mcproto-network"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Minecraft protocol networking."
+readme = "README.md"
+keywords = ["Minecraft", "protocol", "network"]
+categories = ["network-programming", "game-development"]
+
+[dependencies]
+mcproto-codec.workspace = true
+mcproto-derive.workspace = true
+mcproto-types.workspace = true

@@ -4,6 +4,7 @@ members = [
     "mcproto",
     "mcproto-codec",
     "mcproto-derive",
+    "mcproto-network",
     "mcproto-oauth",
     "mcproto-types",
 ]
@@ -23,6 +24,7 @@ cesu8 = "1.1.0"
 getrandom = "0.4.3"
 mcproto-codec = { version = "0.5.0", path = "mcproto-codec" }
 mcproto-derive = { version = "0.5.0", path = "mcproto-derive" }
+mcproto-network = { version = "0.5.0", path = "mcproto-network" }
 mcproto-oauth = { version = "0.5.0", path = "mcproto-oauth" }
 mcproto-types = { version = "0.5.0", path = "mcproto-types" }
 proc-macro2 = "1.0.107"
