@@ -14,4 +14,6 @@ categories = ["network-programming", "game-development"]
 mcproto-codec.workspace = true
 mcproto-derive.workspace = true
 mcproto-types.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
