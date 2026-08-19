@@ -1,6 +1,8 @@
 //! Context and protocol values whose wire representation depends on their
 //! enclosing packet or data structure.
 
+use std::fmt;
+
 use crate::{
     ContextualCodec, TypeCodec,
     basic::{Boolean, Identifier},
@@ -567,6 +569,176 @@ where
         Ok(Self(values))
     }
 }
+
+/// A VarInt-length-prefixed array with a field-specific element-count limit.
+///
+/// Unlike [`PrefixedArray`], values cannot be constructed with more than
+/// `MAX_LENGTH` elements. The same limit is enforced while encoding and
+/// decoding.
+#[repr(transparent)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct BoundedPrefixedArray<T, const MAX_LENGTH: usize>(Vec<T>);
+
+impl<T, const MAX_LENGTH: usize> BoundedPrefixedArray<T, MAX_LENGTH> {
+    /// Maximum number of elements accepted by this array type.
+    pub const MAX_ELEMENTS: usize = MAX_LENGTH;
+
+    /// Creates an array after checking its field-specific length limit.
+    pub fn new(values: Vec<T>) -> Result<Self, BoundedPrefixedArrayTooLong> {
+        if values.len() > MAX_LENGTH {
+            return Err(BoundedPrefixedArrayTooLong {
+                max_length: MAX_LENGTH,
+                actual_length: values.len(),
+            });
+        }
+        Ok(Self(values))
+    }
+
+    /// Returns the number of elements.
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Returns whether the array contains no elements.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Returns the elements as a slice.
+    #[must_use]
+    pub const fn as_slice(&self) -> &[T] {
+        self.0.as_slice()
+    }
+
+    /// Extracts the underlying vector.
+    #[must_use]
+    pub fn into_vec(self) -> Vec<T> {
+        self.0
+    }
+}
+
+impl<T, const MAX_LENGTH: usize> Default for BoundedPrefixedArray<T, MAX_LENGTH> {
+    fn default() -> Self {
+        Self(Vec::new())
+    }
+}
+
+impl<T, const MAX_LENGTH: usize> AsRef<[T]> for BoundedPrefixedArray<T, MAX_LENGTH> {
+    fn as_ref(&self) -> &[T] {
+        self.as_slice()
+    }
+}
+
+impl<T, const MAX_LENGTH: usize> TryFrom<Vec<T>> for BoundedPrefixedArray<T, MAX_LENGTH> {
+    type Error = BoundedPrefixedArrayTooLong;
+
+    fn try_from(values: Vec<T>) -> Result<Self, Self::Error> {
+        Self::new(values)
+    }
+}
+
+impl<T, const MAX_LENGTH: usize> From<BoundedPrefixedArray<T, MAX_LENGTH>> for Vec<T> {
+    fn from(values: BoundedPrefixedArray<T, MAX_LENGTH>) -> Self {
+        values.into_vec()
+    }
+}
+
+impl<T, const MAX_LENGTH: usize> TypeCodec for BoundedPrefixedArray<T, MAX_LENGTH>
+where
+    T: TypeCodec,
+{
+    fn encode(&self, writer: &mut impl std::io::Write) -> Result<(), CodecError> {
+        if self.len() > MAX_LENGTH {
+            return Err(CodecError::invalid_encoding_for_operation(
+                CodecKind::PrefixedArray,
+                CodecOperation::Write,
+                0,
+                InvalidEncodingReason::LengthOutOfRange {
+                    max: MAX_LENGTH,
+                    actual: self.len(),
+                },
+            ));
+        }
+
+        let length = i32::try_from(self.len()).map_err(|_| {
+            CodecError::invalid_encoding_for_operation(
+                CodecKind::PrefixedArray,
+                CodecOperation::Write,
+                0,
+                InvalidEncodingReason::LengthOutOfRange {
+                    max: i32::MAX as usize,
+                    actual: self.len(),
+                },
+            )
+        })?;
+
+        writer
+            .write_varint(length)
+            .map_err(|error| error.with_context(CodecKind::PrefixedArray))?;
+        for value in &self.0 {
+            value
+                .encode(writer)
+                .map_err(|error| error.with_context(CodecKind::PrefixedArray))?;
+        }
+        Ok(())
+    }
+
+    fn decode(reader: &mut impl std::io::Read) -> Result<Self, CodecError> {
+        let (length, prefix_size) = reader
+            .read_varint_with_size()
+            .map_err(|error| error.with_context(CodecKind::PrefixedArray))?;
+        if length < 0 {
+            return Err(CodecError::invalid_encoding(
+                CodecKind::PrefixedArray,
+                prefix_size,
+                InvalidEncodingReason::NegativeLength { value: length },
+            ));
+        }
+
+        let length = length as usize;
+        if length > MAX_LENGTH {
+            return Err(CodecError::invalid_encoding(
+                CodecKind::PrefixedArray,
+                prefix_size,
+                InvalidEncodingReason::LengthOutOfRange {
+                    max: MAX_LENGTH,
+                    actual: length,
+                },
+            ));
+        }
+
+        let mut values = Vec::new();
+        for _ in 0..length {
+            values.push(
+                T::decode(reader).map_err(|error| error.with_context(CodecKind::PrefixedArray))?,
+            );
+        }
+        Ok(Self(values))
+    }
+}
+
+/// Error returned when a [`BoundedPrefixedArray`] exceeds its element limit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct BoundedPrefixedArrayTooLong {
+    /// Maximum permitted number of elements.
+    pub max_length: usize,
+    /// Number of elements in the rejected value.
+    pub actual_length: usize,
+}
+
+impl fmt::Display for BoundedPrefixedArrayTooLong {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "array contains {} elements; maximum is {}",
+            self.actual_length, self.max_length
+        )
+    }
+}
+
+impl std::error::Error for BoundedPrefixedArrayTooLong {}
 
 /// A context-controlled optional value of protocol type `T`.
 ///

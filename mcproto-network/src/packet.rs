@@ -1,6 +1,7 @@
 //! Packet IDs, frame limits, and the outbound encoding pipeline.
 
 pub mod handshaking;
+pub mod login;
 pub mod status;
 
 use std::fmt;
