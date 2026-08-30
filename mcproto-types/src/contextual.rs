@@ -436,6 +436,94 @@ impl ContextualCodec for ByteArray {
     }
 }
 
+/// Raw bytes extending to the end of the enclosing protocol value.
+///
+/// This type has no length prefix. Its boundary must be supplied by the
+/// enclosing value, normally the already-framed packet body. It is useful for
+/// plugin-message payloads whose format and internal prefixes are selected by
+/// the channel identifier.
+#[repr(transparent)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub struct RemainingBytes(
+    /// The bytes stored without a length prefix.
+    pub Vec<u8>,
+);
+
+impl RemainingBytes {
+    /// Creates a payload from raw bytes.
+    #[must_use]
+    pub const fn new(bytes: Vec<u8>) -> Self {
+        Self(bytes)
+    }
+
+    /// Returns the number of bytes.
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Returns whether the payload is empty.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Returns the payload as a byte slice.
+    #[must_use]
+    pub const fn as_slice(&self) -> &[u8] {
+        self.0.as_slice()
+    }
+
+    /// Extracts the raw bytes.
+    #[must_use]
+    pub fn into_vec(self) -> Vec<u8> {
+        self.0
+    }
+}
+
+impl AsRef<[u8]> for RemainingBytes {
+    fn as_ref(&self) -> &[u8] {
+        self.as_slice()
+    }
+}
+
+impl From<Vec<u8>> for RemainingBytes {
+    fn from(bytes: Vec<u8>) -> Self {
+        Self(bytes)
+    }
+}
+
+impl From<RemainingBytes> for Vec<u8> {
+    fn from(bytes: RemainingBytes) -> Self {
+        bytes.into_vec()
+    }
+}
+
+impl TypeCodec for RemainingBytes {
+    fn encode(&self, writer: &mut impl std::io::Write) -> Result<(), CodecError> {
+        write_all_counted(writer, &self.0, CodecKind::RemainingBytes, 0)
+    }
+
+    fn decode(reader: &mut impl std::io::Read) -> Result<Self, CodecError> {
+        let mut bytes = Vec::new();
+        let mut buffer = [0; 8 * 1024];
+        loop {
+            match reader.read(&mut buffer) {
+                Ok(0) => return Ok(Self(bytes)),
+                Ok(read) => bytes.extend_from_slice(&buffer[..read]),
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(error) => {
+                    return Err(CodecError::from_read_error(
+                        CodecKind::RemainingBytes,
+                        bytes.len(),
+                        error,
+                    ));
+                }
+            }
+        }
+    }
+}
+
 /// A sequence prefixed by its element count as a VarInt.
 ///
 /// The [Minecraft protocol Prefixed Array] wire representation is a

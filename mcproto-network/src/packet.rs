@@ -1,5 +1,6 @@
 //! Packet IDs, frame limits, and the outbound encoding pipeline.
 
+pub mod configuration;
 pub mod handshaking;
 pub mod login;
 pub mod status;

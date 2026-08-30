@@ -135,6 +135,8 @@ pub enum CodecKind {
     Array,
     /// A raw sequence of bytes whose length is supplied by protocol context.
     ByteArray,
+    /// Raw bytes extending to the end of an enclosing value.
+    RemainingBytes,
     /// A sequence prefixed by its element count as a VarInt.
     PrefixedArray,
     /// A value selected from a fixed protocol enumeration.
@@ -235,6 +237,7 @@ impl fmt::Display for CodecKind {
             Self::RegistryId => formatter.write_str("Registry ID"),
             Self::Array => formatter.write_str("Array"),
             Self::ByteArray => formatter.write_str("Byte Array"),
+            Self::RemainingBytes => formatter.write_str("Remaining Bytes"),
             Self::PrefixedArray => formatter.write_str("Prefixed Array"),
             Self::Enum => formatter.write_str("Enum"),
             Self::IdOr => formatter.write_str("ID or X"),
