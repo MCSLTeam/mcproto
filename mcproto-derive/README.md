@@ -61,3 +61,25 @@ struct Pair {
     second: VarInt,
 }
 ```
+
+## `ContextualStructCodec`
+
+`ContextualStructCodec` derives [`ContextualCodec`] for named structures that
+contain fields whose presence is determined by an earlier boolean field. Add
+`#[context(presence = field_name)]` to the dependent field:
+
+```rust
+use mcproto_types::{Boolean, ContextualStructCodec, Optional, UnsignedByte};
+
+#[derive(ContextualStructCodec)]
+#[contextual_struct_codec(kind = TypeStruct)]
+struct OptionalValue {
+    has_value: Boolean,
+    #[context(presence = has_value)]
+    value: Optional<UnsignedByte>,
+}
+```
+
+The same field attribute is supported by `PacketCodec`. Context fields must be
+declared before the fields that reference them; unknown or forward references
+are rejected by the derive macro.

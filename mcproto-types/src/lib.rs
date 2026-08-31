@@ -46,7 +46,9 @@ pub use text_component::*;
 /// [`ProtocolEnum`] implements both [`ProtocolEnum`](trait@ProtocolEnum) and
 /// [`TypeCodec`] for a fieldless enum. [`TypeStructCodec`] implements
 /// [`TypeCodec`] for a structure by processing its fields in declaration order.
-pub use mcproto_derive::{ProtocolEnum, TypeStructCodec};
+/// [`ContextualStructCodec`] implements [`ContextualCodec`] for structures whose
+/// fields use context supplied by earlier fields.
+pub use mcproto_derive::{ContextualStructCodec, ProtocolEnum, TypeStructCodec};
 
 /// Encodes and decodes a value whose wire representation depends on external
 /// protocol context.
