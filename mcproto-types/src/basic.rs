@@ -1233,6 +1233,63 @@ impl<const N: usize> TypeCodec for FixedBitSet<N> {
     }
 }
 
+/// A byte array with a fixed length of `N` bytes.
+///
+/// A fixed byte array is encoded as exactly `N` raw bytes, without a length
+/// prefix. This differs from [`ByteArray`](crate::contextual::ByteArray),
+/// whose length is supplied by protocol context.
+///
+/// # Examples
+///
+/// ```
+/// use mcproto_types::{TypeCodec, basic::FixedByteArray};
+///
+/// let value = FixedByteArray::<4>([0xde, 0xad, 0xbe, 0xef]);
+///
+/// let mut encoded = Vec::new();
+/// value.encode(&mut encoded)?;
+/// assert_eq!(encoded, [0xde, 0xad, 0xbe, 0xef]);
+///
+/// let mut input = encoded.as_slice();
+/// assert_eq!(FixedByteArray::<4>::decode(&mut input)?, value);
+/// # Ok::<(), mcproto_codec::error::CodecError>(())
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct FixedByteArray<const N: usize>(
+    /// The raw bytes.
+    pub [u8; N],
+);
+
+impl<const N: usize> From<[u8; N]> for FixedByteArray<N> {
+    fn from(bytes: [u8; N]) -> Self {
+        Self(bytes)
+    }
+}
+
+impl<const N: usize> From<FixedByteArray<N>> for [u8; N] {
+    fn from(value: FixedByteArray<N>) -> Self {
+        value.0
+    }
+}
+
+impl<const N: usize> AsRef<[u8]> for FixedByteArray<N> {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl<const N: usize> TypeCodec for FixedByteArray<N> {
+    fn encode(&self, writer: &mut impl Write) -> Result<(), CodecError> {
+        write_all_counted(writer, &self.0, CodecKind::ByteArray, 0)
+    }
+
+    fn decode(reader: &mut impl Read) -> Result<Self, CodecError> {
+        let mut bytes = [0u8; N];
+        read_exact_counted(reader, &mut bytes, CodecKind::ByteArray, 0)?;
+        Ok(Self(bytes))
+    }
+}
+
 macro_rules! impl_enum_repr {
     ($type:ident, $primitive:ty) => {
         impl EnumRepr for $type {
