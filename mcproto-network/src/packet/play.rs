@@ -13,6 +13,9 @@ use mcproto_types::{
 };
 
 use crate::PacketCodec;
+use crate::packet::configuration::{
+    ChatMode, ClientLocale, DisplayedSkinParts, MainHand, ParticleStatus,
+};
 
 #[derive(PacketCodec)]
 #[packet(
@@ -611,4 +614,92 @@ pub struct PlayerSession {
     pub session_id: Uuid,
     /// Public Key
     pub public_key: PlayerSessionKey,
+}
+
+/// Action performed by the Client Status packet.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Client_Status)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, ProtocolEnum)]
+#[protocol_enum(repr = VarInt)]
+pub enum ClientStatusAction {
+    /// Sent when the client is ready to respawn after death.
+    PerformRespawn = 0,
+    /// Sent when the client opens the Statistics menu.
+    RequestStats = 1,
+    /// Sent when the client opens the Edit Game Rules menu.
+    RequestGameRuleValues = 2,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "client_command",
+    id = 0x0C,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Serverbound `client_command`, Play ID: 12 (0xC)
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Client_Status)
+pub struct ClientStatus {
+    /// Action ID.
+    pub action: ClientStatusAction,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "clear_titles",
+    id = 0x0E,
+    state = Play,
+    direction = Clientbound,
+)]
+/// Clear the client's current title information, with the option to also
+/// reset it.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Clear_Titles)
+pub struct ClearTitles {
+    /// Reset
+    pub reset: Boolean,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "client_tick_end",
+    id = 0x0D,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Serverbound `client_tick_end`, Play ID: 13 (0xD)
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Client_Tick_End)
+pub struct ClientTickEnd;
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "client_information",
+    id = 0x0E,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Sent when the player connects, or when settings are changed.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Client_Information)
+pub struct ClientInformation {
+    /// e.g. `en_GB`.
+    pub locale: ClientLocale,
+    /// Client-side render distance, in chunks.
+    pub view_distance: Byte,
+    /// Which chat messages the client displays.
+    pub chat_mode: ChatMode,
+    /// Whether the multiplayer Colors setting is enabled.
+    pub chat_colors: Boolean,
+    /// Enabled skin layers.
+    pub displayed_skin_parts: DisplayedSkinParts,
+    /// Player's selected main hand.
+    pub main_hand: MainHand,
+    /// Whether account text filtering is enabled.
+    pub enable_text_filtering: Boolean,
+    /// Whether the player permits inclusion in server player listings.
+    pub allow_server_listings: Boolean,
+    /// Client particle-density preference.
+    pub particle_status: ParticleStatus,
 }
