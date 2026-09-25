@@ -1,4 +1,4 @@
-//! Play state packets for protocol 776 (Minecraft Java Edition 26.2).
+//! Play state packets for protocol 777 (Minecraft Java Edition 26.3).
 
 pub mod bossbar;
 pub mod chunk;
@@ -8,8 +8,8 @@ pub use chunk::*;
 
 use mcproto_types::{
     Angle, Boolean, BoundedPrefixedArray, BoundedString, Byte, Double, FixedBitSet, FixedByteArray,
-    Long, LpVec3, Nbt, Position, PrefixedArray, PrefixedOptional, PrefixedString, ProtocolEnum,
-    TypeStructCodec, UnsignedByte, Uuid, VarInt,
+    Float, Long, LpVec3, Nbt, Position, PrefixedArray, PrefixedOptional, PrefixedString,
+    ProtocolEnum, TypeStructCodec, UnsignedByte, Uuid, VarInt,
 };
 
 use crate::PacketCodec;
@@ -51,6 +51,16 @@ pub struct BundleDelimiter;
 pub struct ConfirmTeleportation {
     /// The ID given by the Synchronize Player Position packet.
     pub teleport_id: VarInt,
+    /// Resulting X position.
+    pub x: Double,
+    /// Resulting Y position.
+    pub y: Double,
+    /// Resulting Z position.
+    pub z: Double,
+    /// Resulting yaw.
+    pub yaw: Float,
+    /// Resulting pitch.
+    pub pitch: Float,
 }
 
 #[derive(PacketCodec)]
@@ -132,16 +142,12 @@ pub struct Attack {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, ProtocolEnum)]
 #[protocol_enum(repr = UnsignedByte)]
 pub enum EntityAnimationKind {
-    /// Swing the player's main arm.
-    SwingMainArm = 0,
-    /// Leave the bed animation.
-    LeaveBed = 2,
-    /// Swing the player's offhand.
-    SwingOffhand = 3,
-    /// Critical hit visual effect.
-    CriticalEffect = 4,
-    /// Magic enchant critical hit visual effect.
-    MagicCriticalEffect = 5,
+    /// Wake up / leave bed.
+    WakeUpLeaveBed = 0,
+    /// Critical effect.
+    CriticalEffect = 1,
+    /// Magic critical effect.
+    MagicCriticalEffect = 2,
 }
 
 #[derive(PacketCodec)]

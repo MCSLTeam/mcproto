@@ -1,4 +1,4 @@
-//! Boss Bar packet for protocol 776 (Minecraft Java Edition 26.2).
+//! Boss Bar packet for protocol 777 (Minecraft Java Edition 26.3).
 
 use std::io::{Read, Write};
 

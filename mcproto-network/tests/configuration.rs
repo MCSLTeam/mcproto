@@ -1,4 +1,4 @@
-//! Configuration packet protocol tests for Minecraft Java Edition 26.2.
+//! Configuration packet protocol tests for Minecraft Java Edition 26.3.
 
 use mcproto_network::{
     DecodePacket, Direction, EncodePacket, Packet, ProtocolState,

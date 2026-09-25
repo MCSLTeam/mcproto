@@ -1,4 +1,4 @@
-//! Configuration state packets for protocol 776 (Minecraft Java Edition 26.2).
+//! Configuration state packets for protocol 777 (Minecraft Java Edition 26.3).
 
 use std::io::{Read, Write};
 

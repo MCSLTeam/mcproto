@@ -1,8 +1,8 @@
 //! Login state packets.
 
 use mcproto_types::{
-    Boolean, BoundedPrefixedArray, Byte, GameProfile, Identifier, JsonTextComponent, PrefixedArray,
-    PrefixedOptional, PrefixedString, TypeCodec, Uuid, VarInt,
+    Boolean, BoundedPrefixedArray, BoundedString, Byte, GameProfile, Identifier, JsonTextComponent,
+    PrefixedArray, PrefixedOptional, TypeCodec, Uuid, VarInt,
 };
 
 use crate::PacketCodec;
@@ -18,7 +18,7 @@ use crate::PacketCodec;
 /// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Login_Start)
 pub struct LoginStart {
     /// Player's Username. Some plugins allow player to use longer name.
-    pub username: PrefixedString,
+    pub username: BoundedString<16>,
     /// The [UUID](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Type:UUID) of the player logging in. Unused by the vanilla server.
     pub player_uuid: Uuid,
 }
@@ -48,7 +48,7 @@ pub struct Disconnect {
 /// Details: [protocol encryption](https://minecraft.wiki/w/Protocol_encryption)
 pub struct EncryptionRequest {
     /// Always empty when sent by the vanilla server.
-    pub server_id: PrefixedString,
+    pub server_id: BoundedString<20>,
     /// The server's public key, in bytes.
     pub public_key: PrefixedArray<Byte>,
     /// The nonce used to verify the encryption response.
@@ -111,7 +111,7 @@ pub struct LoginSuccess {
     name = "login_compression",
     id = 0x03,
     state = Login,
-    direction = Serverbound,
+    direction = Clientbound,
 )]
 /// Enables compression.
 ///

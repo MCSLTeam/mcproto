@@ -140,14 +140,14 @@ pub struct PingRequestStatus {
     pub timestamp: Long,
 }
 impl PingRequestStatus {
-    /// Creates a new `PingRequestStatus` with the current system time in normal seconds.
+    /// Creates a new `PingRequestStatus` with the current system time in milliseconds.
     pub fn new() -> Self {
         Self {
             timestamp: Long(
                 SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .expect("Time went backward")
-                    .as_secs() as i64,
+                    .as_millis() as i64,
             ),
         }
     }

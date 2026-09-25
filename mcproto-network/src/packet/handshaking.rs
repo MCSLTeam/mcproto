@@ -31,7 +31,7 @@ pub type ServerAddress = BoundedString<255>;
 )]
 /// Causes the server to switch into the target protocol state.
 pub struct Handshake {
-    /// See [protocol version numbers](https://minecraft.wiki/w/Minecraft_Wiki:Projects/wiki.vg_merge/Protocol_version_numbers) (currently 776 in Minecraft 26.2).
+    /// See [protocol version numbers](https://minecraft.wiki/w/Minecraft_Wiki:Projects/wiki.vg_merge/Protocol_version_numbers) (currently 777 in Minecraft 26.3).
     pub protocol_version: VarInt,
     /// Hostname or IP used to connect, limited to 255 UTF-16 code units.
     pub server_address: ServerAddress,
