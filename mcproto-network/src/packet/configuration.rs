@@ -409,7 +409,18 @@ pub struct AddResourcePack {
 }
 
 #[derive(PacketCodec)]
-#[packet(name = "store_cookie", id = 0x0a, state = Configuration, direction = Clientbound)]
+#[packet(name = "post_effects", id = 0x0a, state = Configuration, direction = Clientbound)]
+/// Sends the list of post-processing effects that should be active for the
+/// client. This packet is available in both the Configuration and Play states.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Post_Effects)
+pub struct PostEffects {
+    /// Identifiers of the post-processing effects to activate.
+    pub post_effects: PrefixedArray<Identifier>,
+}
+
+#[derive(PacketCodec)]
+#[packet(name = "store_cookie", id = 0x0b, state = Configuration, direction = Clientbound)]
 /// Stores data on the client for later connections and server transfers.
 ///
 /// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Store_Cookie)
@@ -421,7 +432,7 @@ pub struct StoreCookie {
 }
 
 #[derive(PacketCodec)]
-#[packet(name = "transfer", id = 0x0b, state = Configuration, direction = Clientbound)]
+#[packet(name = "transfer", id = 0x0c, state = Configuration, direction = Clientbound)]
 /// Directs the client to reconnect to another server with Transfer intent.
 ///
 /// Cookies remain available across the transfer.
@@ -435,7 +446,7 @@ pub struct Transfer {
 }
 
 #[derive(PacketCodec)]
-#[packet(name = "update_enabled_features", id = 0x0c, state = Configuration, direction = Clientbound)]
+#[packet(name = "update_enabled_features", id = 0x0d, state = Configuration, direction = Clientbound)]
 /// Enables the listed vanilla or experimental feature flags.
 ///
 /// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Feature_Flags)
@@ -445,7 +456,7 @@ pub struct FeatureFlags {
 }
 
 #[derive(PacketCodec)]
-#[packet(name = "update_tags", id = 0x0d, state = Configuration, direction = Clientbound)]
+#[packet(name = "update_tags", id = 0x0e, state = Configuration, direction = Clientbound)]
 /// Replaces tag contents for the supplied registries.
 ///
 /// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Update_Tags)
@@ -455,7 +466,7 @@ pub struct UpdateTags {
 }
 
 #[derive(PacketCodec)]
-#[packet(name = "select_known_packs", id = 0x0e, state = Configuration, direction = Clientbound)]
+#[packet(name = "select_known_packs", id = 0x0f, state = Configuration, direction = Clientbound)]
 /// Lists data packs present on the server for known-pack negotiation.
 ///
 /// The client responds with the known subset in the same order.
@@ -467,7 +478,7 @@ pub struct KnownPacksClientbound {
 }
 
 #[derive(PacketCodec)]
-#[packet(name = "custom_report_details", id = 0x0f, state = Configuration, direction = Clientbound)]
+#[packet(name = "custom_report_details", id = 0x10, state = Configuration, direction = Clientbound)]
 /// Adds key-value text entries to crash and disconnection reports.
 ///
 /// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Custom_Report_Details)
@@ -477,7 +488,7 @@ pub struct CustomReportDetails {
 }
 
 #[derive(PacketCodec)]
-#[packet(name = "server_links", id = 0x10, state = Configuration, direction = Clientbound)]
+#[packet(name = "server_links", id = 0x11, state = Configuration, direction = Clientbound)]
 /// Supplies links displayed in the vanilla pause menu.
 ///
 /// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Server_Links)
@@ -487,14 +498,14 @@ pub struct ServerLinks {
 }
 
 #[derive(PacketCodec)]
-#[packet(name = "clear_dialog", id = 0x11, state = Configuration, direction = Clientbound)]
+#[packet(name = "clear_dialog", id = 0x12, state = Configuration, direction = Clientbound)]
 /// Closes the current dialog and returns to the previous screen.
 ///
 /// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Clear_Dialog)
 pub struct ClearDialog;
 
 #[derive(PacketCodec)]
-#[packet(name = "show_dialog", id = 0x12, state = Configuration, direction = Clientbound)]
+#[packet(name = "show_dialog", id = 0x13, state = Configuration, direction = Clientbound)]
 /// Displays a custom dialog defined inline as NBT.
 ///
 /// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Show_Dialog_(configuration))
@@ -504,7 +515,7 @@ pub struct ShowDialog {
 }
 
 #[derive(PacketCodec)]
-#[packet(name = "code_of_conduct", id = 0x13, state = Configuration, direction = Clientbound)]
+#[packet(name = "code_of_conduct", id = 0x14, state = Configuration, direction = Clientbound)]
 /// Shows the server's code of conduct and waits for acceptance.
 ///
 /// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Code_of_Conduct)

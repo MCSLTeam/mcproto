@@ -7,8 +7,8 @@ use mcproto_network::{
         CookieRequest, CookieResponse, CustomClickAction, CustomClickPayload, CustomReportDetails,
         Disconnect, FeatureFlags, FinishConfiguration, KeepAliveClientbound, KeepAliveServerbound,
         KnownPacksClientbound, KnownPacksServerbound, Ping, PluginMessageClientbound,
-        PluginMessageServerbound, Pong, RegistryData, RemoveResourcePack, ResourcePackResponse,
-        ServerLinks, ShowDialog, StoreCookie, Transfer, UpdateTags,
+        PluginMessageServerbound, Pong, PostEffects, RegistryData, RemoveResourcePack,
+        ResourcePackResponse, ServerLinks, ShowDialog, StoreCookie, Transfer, UpdateTags,
     },
 };
 use mcproto_types::{Identifier, RemainingBytes, TypeCodec};
@@ -20,7 +20,7 @@ fn assert_packet<P: Packet>(id: i32, direction: Direction) {
 }
 
 #[test]
-fn configuration_packet_ids_match_protocol_776() {
+fn configuration_packet_ids_match_protocol_777() {
     assert_packet::<CookieRequest>(0x00, Direction::Clientbound);
     assert_packet::<PluginMessageClientbound>(0x01, Direction::Clientbound);
     assert_packet::<Disconnect>(0x02, Direction::Clientbound);
@@ -37,19 +37,20 @@ fn configuration_packet_ids_match_protocol_776() {
         0x09,
         Direction::Clientbound,
     );
-    assert_packet::<StoreCookie>(0x0a, Direction::Clientbound);
-    assert_packet::<Transfer>(0x0b, Direction::Clientbound);
-    assert_packet::<FeatureFlags>(0x0c, Direction::Clientbound);
-    assert_packet::<UpdateTags>(0x0d, Direction::Clientbound);
-    assert_packet::<KnownPacksClientbound>(0x0e, Direction::Clientbound);
-    assert_packet::<CustomReportDetails>(0x0f, Direction::Clientbound);
-    assert_packet::<ServerLinks>(0x10, Direction::Clientbound);
+    assert_packet::<PostEffects>(0x0a, Direction::Clientbound);
+    assert_packet::<StoreCookie>(0x0b, Direction::Clientbound);
+    assert_packet::<Transfer>(0x0c, Direction::Clientbound);
+    assert_packet::<FeatureFlags>(0x0d, Direction::Clientbound);
+    assert_packet::<UpdateTags>(0x0e, Direction::Clientbound);
+    assert_packet::<KnownPacksClientbound>(0x0f, Direction::Clientbound);
+    assert_packet::<CustomReportDetails>(0x10, Direction::Clientbound);
+    assert_packet::<ServerLinks>(0x11, Direction::Clientbound);
     assert_packet::<mcproto_network::packet::configuration::ClearDialog>(
-        0x11,
+        0x12,
         Direction::Clientbound,
     );
-    assert_packet::<ShowDialog>(0x12, Direction::Clientbound);
-    assert_packet::<CodeOfConduct>(0x13, Direction::Clientbound);
+    assert_packet::<ShowDialog>(0x13, Direction::Clientbound);
+    assert_packet::<CodeOfConduct>(0x14, Direction::Clientbound);
 
     assert_packet::<ClientInformation>(0x00, Direction::Serverbound);
     assert_packet::<CookieResponse>(0x01, Direction::Serverbound);
