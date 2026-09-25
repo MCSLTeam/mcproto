@@ -1,6 +1,6 @@
 //! Chunk packet definitions.
 
-use mcproto_types::{Byte, Int, PrefixedArray, TypeStructCodec, VarInt};
+use mcproto_types::{Byte, Float, Int, PrefixedArray, TypeStructCodec, VarInt};
 
 use crate::PacketCodec;
 
@@ -29,6 +29,24 @@ pub struct ChunkBatchFinished {
     pub batch_size: VarInt,
 }
 
+#[derive(PacketCodec)]
+#[packet(
+    name = "chunk_batch_received",
+    id = 0x0B,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Notifies the server that the chunk batch has been received by the client.
+/// The server uses the value sent in this packet to adjust the number of
+/// chunks to be sent in a batch.
+///
+/// The vanilla server will stop sending further chunk data until the client
+/// acknowledges the sent chunk batch. After the first acknowledgement, the
+/// server adjusts this number to allow up to 10 unacknowledged batches.
+pub struct ChunkBatchReceived {
+    /// Desired chunks per tick.
+    pub chunks_per_tick: Float,
+}
 #[derive(PacketCodec)]
 #[packet(
     name = "chunk_batch_start",

@@ -34,3 +34,6 @@ target
 .agents/
 package.json
 package-lock.json
+
+.wiki_packets.json
+sslog.txt
