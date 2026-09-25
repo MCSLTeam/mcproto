@@ -4,6 +4,7 @@ pub mod bossbar;
 pub mod chunk;
 
 pub use bossbar::*;
+pub use chunk::*;
 
 use mcproto_types::{
     Angle, Boolean, BoundedPrefixedArray, BoundedString, Byte, Double, FixedBitSet, FixedByteArray,
