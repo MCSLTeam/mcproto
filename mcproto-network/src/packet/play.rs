@@ -7,9 +7,9 @@ pub use bossbar::*;
 pub use chunk::*;
 
 use mcproto_types::{
-    Angle, Boolean, BoundedPrefixedArray, BoundedString, Byte, Double, FixedBitSet, FixedByteArray,
-    Float, Long, LpVec3, Nbt, Position, PrefixedArray, PrefixedOptional, PrefixedString,
-    ProtocolEnum, TypeStructCodec, UnsignedByte, Uuid, VarInt,
+    Angle, Boolean, BoundedPrefixedArray, BoundedString, Byte, CommandNode, Double, FixedBitSet,
+    FixedByteArray, Float, Long, LpVec3, Nbt, Position, PrefixedArray, PrefixedOptional,
+    PrefixedString, ProtocolEnum, TextComponent, TypeStructCodec, UnsignedByte, Uuid, VarInt,
 };
 
 use crate::PacketCodec;
@@ -702,4 +702,80 @@ pub struct ClientInformation {
     pub allow_server_listings: Boolean,
     /// Client particle-density preference.
     pub particle_status: ParticleStatus,
+}
+
+/// One completion candidate inside the Command Suggestions Response packet.
+#[derive(Debug, Clone, PartialEq, TypeStructCodec)]
+#[type_struct_codec(kind = TypeStruct)]
+pub struct CommandSuggestionMatch {
+    /// One eligible value to insert, note that each command is sent separately
+    /// instead of in a single string, hence the need for Count.
+    pub r#match: PrefixedString,
+    /// Tooltip to display.
+    pub tooltip: PrefixedOptional<TextComponent>,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "command_suggestion",
+    id = 0x0F,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Sent when the client needs to tab-complete a `minecraft:ask_server`
+/// suggestion type.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Command_Suggestions_Request)
+pub struct CommandSuggestionsRequest {
+    /// The ID of the transaction that the server will send back to the client
+    /// in the response of this packet. Client generates this and increments it
+    /// each time it sends another tab completion that doesn't get a response.
+    pub transaction_id: VarInt,
+    /// All the text behind the cursor including the `/` (e.g. to the left of
+    /// the cursor in left-to-right languages like English).
+    pub text: BoundedString<32500>,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "command_suggestions",
+    id = 0x0F,
+    state = Play,
+    direction = Clientbound,
+)]
+/// The server responds with a list of auto-completions of the last word sent
+/// to it. In the case of regular chat, this is a player username. Command
+/// names and parameters are also supported. The client sorts these
+/// alphabetically before listing them.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Command_Suggestions_Response)
+pub struct CommandSuggestionsResponse {
+    /// Transaction ID.
+    pub id: VarInt,
+    /// Start of the text to replace.
+    pub start: VarInt,
+    /// Length of the text to replace.
+    pub length: VarInt,
+    /// Completion candidates.
+    pub matches: PrefixedArray<CommandSuggestionMatch>,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "commands",
+    id = 0x10,
+    state = Play,
+    direction = Clientbound,
+)]
+/// Lists all of the commands on the server, and how they are parsed.
+///
+/// This is a directed graph, with one root node. Each redirect or child node
+/// must refer only to nodes that have already been declared.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Commands)
+pub struct Commands {
+    /// An array of nodes.
+    pub nodes: PrefixedArray<CommandNode>,
+    /// Index of the `root` node in the previous array.
+    pub root_index: VarInt,
 }

@@ -7,6 +7,7 @@ extern crate self as mcproto_types;
 
 pub mod basic;
 pub mod chat_type;
+pub mod command;
 pub mod component;
 pub mod contextual;
 pub mod debug;
@@ -27,6 +28,7 @@ pub mod text_component;
 /// `mcproto_types::basic::VarInt` and `mcproto_types::VarInt` are supported.
 pub use basic::*;
 pub use chat_type::*;
+pub use command::*;
 pub use component::*;
 pub use contextual::*;
 pub use debug::*;
