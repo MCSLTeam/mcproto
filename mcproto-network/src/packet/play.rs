@@ -779,3 +779,18 @@ pub struct Commands {
     /// Index of the `root` node in the previous array.
     pub root_index: VarInt,
 }
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "configuration_acknowledged",
+    id = 0x10,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Sent by the client upon receiving a Start Configuration packet from the
+/// server.
+///
+/// This packet switches the connection state to configuration.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Acknowledge_Configuration)
+pub struct AcknowledgeConfiguration;
