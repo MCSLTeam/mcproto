@@ -2,14 +2,17 @@
 
 pub mod bossbar;
 pub mod chunk;
+pub mod container;
 
 pub use bossbar::*;
 pub use chunk::*;
+pub use container::*;
 
 use mcproto_types::{
     Angle, Boolean, BoundedPrefixedArray, BoundedString, Byte, CommandNode, Double, FixedBitSet,
-    FixedByteArray, Float, Long, LpVec3, Nbt, Position, PrefixedArray, PrefixedOptional,
-    PrefixedString, ProtocolEnum, TextComponent, TypeStructCodec, UnsignedByte, Uuid, VarInt,
+    FixedByteArray, Float, Identifier, Long, LpVec3, Nbt, Position, PrefixedArray,
+    PrefixedOptional, PrefixedString, ProtocolEnum, TextComponent, TypeStructCodec, UnsignedByte,
+    Uuid, VarInt,
 };
 
 use crate::PacketCodec;
@@ -794,3 +797,36 @@ pub struct Commands {
 ///
 /// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Acknowledge_Configuration)
 pub struct AcknowledgeConfiguration;
+#[derive(PacketCodec)]
+#[packet(
+    name = "cookie_request",
+    id = 0x15,
+    state = Play,
+    direction = Clientbound,
+)]
+/// Requests a cookie that was previously stored.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Cookie_Request)
+pub struct CookieRequest {
+    /// The identifier of the cookie.
+    pub key: Identifier,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "cookie_response",
+    id = 0x15,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Response to a [Cookie Request](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Cookie_Request) from the server.
+///
+/// The vanilla server only accepts responses of up to 5 kiB in size.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Cookie_Response)
+pub struct CookieResponse {
+    /// The identifier of the cookie.
+    pub key: Identifier,
+    /// The data of the cookie.
+    pub payload: PrefixedOptional<BoundedPrefixedArray<Byte, 5120>>,
+}
