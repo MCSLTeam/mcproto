@@ -3,16 +3,18 @@
 pub mod bossbar;
 pub mod chunk;
 pub mod container;
+pub mod debug;
 
 pub use bossbar::*;
 pub use chunk::*;
 pub use container::*;
+pub use debug::*;
 
 use mcproto_types::{
     Angle, Boolean, BoundedPrefixedArray, BoundedString, Byte, CommandNode, Double, FixedBitSet,
     FixedByteArray, Float, Identifier, Long, LpVec3, Nbt, Position, PrefixedArray,
-    PrefixedOptional, PrefixedString, ProtocolEnum, TextComponent, TypeStructCodec, UnsignedByte,
-    Uuid, VarInt,
+    PrefixedOptional, PrefixedString, ProtocolEnum, RemainingBytes, TextComponent, TypeStructCodec,
+    UnsignedByte, Uuid, VarInt,
 };
 
 use crate::PacketCodec;
@@ -829,4 +831,285 @@ pub struct CookieResponse {
     pub key: Identifier,
     /// The data of the cookie.
     pub payload: PrefixedOptional<BoundedPrefixedArray<Byte, 5120>>,
+}
+/// Action performed by the Chat Suggestions packet.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Chat_Suggestions)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, ProtocolEnum)]
+#[protocol_enum(repr = VarInt)]
+pub enum ChatSuggestionsAction {
+    /// Add entries.
+    Add = 0,
+    /// Remove entries.
+    Remove = 1,
+    /// Set entries.
+    Set = 2,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "cooldown",
+    id = 0x16,
+    state = Play,
+    direction = Clientbound,
+)]
+/// Applies a cooldown period to all items with the given type. Used by the
+/// vanilla server with enderpearls. This packet should be sent when the
+/// cooldown starts and also when the cooldown ends (to compensate for lag),
+/// although the client will end the cooldown automatically. Can be applied to
+/// any item, note that interactions still get sent to the server with the item,
+/// but the client does not play the animation nor attempt to predict results
+/// (i.e, block placing).
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Set_Cooldown)
+pub struct SetCooldown {
+    /// Identifier of the item (`minecraft:stone`) or the cooldown group
+    /// (`use_cooldown` item component).
+    pub cooldown_group: Identifier,
+    /// Number of ticks to apply a cooldown for, or 0 to clear the cooldown.
+    pub cooldown_ticks: VarInt,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "custom_chat_completions",
+    id = 0x17,
+    state = Play,
+    direction = Clientbound,
+)]
+/// Unused by the vanilla server. Likely provided for custom servers to send
+/// chat message completions to clients.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Chat_Suggestions)
+pub struct ChatSuggestions {
+    /// 0: Add, 1: Remove, 2: Set.
+    pub action: ChatSuggestionsAction,
+    /// Chat suggestion entries.
+    pub entries: PrefixedArray<BoundedString<32767>>,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "custom_payload",
+    id = 0x18,
+    state = Play,
+    direction = Clientbound,
+)]
+/// Mods and plugins can use this to send their data. Minecraft itself uses
+/// several plugin channels. These internal channels are in the `minecraft`
+/// namespace.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Plugin_Message_(clientbound))
+pub struct PluginMessageClientbound {
+    /// Name of the plugin channel used to send the data.
+    pub channel: Identifier,
+    /// Any data, depending on the channel. The payload occupies the rest of
+    /// the packet body without a universal length prefix.
+    pub data: RemainingBytes,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "custom_payload",
+    id = 0x16,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Mods and plugins can use this to send their data. Minecraft itself uses
+/// some plugin channels. These internal channels are in the `minecraft`
+/// namespace.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Plugin_Message_(serverbound))
+pub struct PluginMessageServerbound {
+    /// Name of the plugin channel used to send the data.
+    pub channel: Identifier,
+    /// Any data, depending on the channel. The payload occupies the rest of
+    /// the packet body without a universal length prefix.
+    pub data: RemainingBytes,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "debug_subscription_request",
+    id = 0x17,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Sent by the client whenever debug subscriptions, used by debug graphs and
+/// renderers, are activated or deactivated. The list in the packet replaces
+/// the previous set of active subscriptions. Subscriptions not in the list are
+/// deactivated.
+///
+/// If the client does not have permission to receive the requested debug
+/// information, the subscriptions are nonetheless retained by the server, and
+/// it is not necessary to send this packet again if the permissions change.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Debug_Subscription_Request)
+pub struct DebugSubscriptionRequest {
+    /// List of active debug subscriptions. IDs in the
+    /// `minecraft:debug_subscription` registry.
+    pub subscriptions: PrefixedArray<VarInt>,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "damage_event",
+    id = 0x19,
+    state = Play,
+    direction = Clientbound,
+)]
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Damage_Event)
+pub struct DamageEvent {
+    /// The ID of the entity taking damage.
+    pub entity_id: VarInt,
+    /// The type of damage in the `minecraft:damage_type` registry, defined by
+    /// the Registry Data packet.
+    pub source_type_id: VarInt,
+    /// The ID + 1 of the entity responsible for the damage, if present. If not
+    /// present, the value is 0.
+    pub source_cause_id: VarInt,
+    /// The ID + 1 of the entity that directly dealt the damage, if present. If
+    /// not present, the value is 0. If this field is present and damage was
+    /// dealt indirectly, such as by the use of a projectile, this field will
+    /// contain the ID of such projectile; and if damage was dealt directly,
+    /// such as by manually attacking, this field will contain the same value as
+    /// Source Cause ID.
+    pub source_direct_id: VarInt,
+    /// The vanilla server sends the Source Position when the damage was dealt
+    /// by the /damage command and a position was specified.
+    pub source_position: PrefixedOptional<DamageEventSourcePosition>,
+}
+
+/// Source position for the Damage Event packet.
+#[derive(Debug, Clone, Copy, PartialEq, TypeStructCodec)]
+#[type_struct_codec(kind = TypeStruct)]
+pub struct DamageEventSourcePosition {
+    /// X coordinate.
+    pub x: Double,
+    /// Y coordinate.
+    pub y: Double,
+    /// Z coordinate.
+    pub z: Double,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "edit_book",
+    id = 0x18,
+    state = Play,
+    direction = Serverbound,
+)]
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Edit_Book)
+pub struct EditBook {
+    /// The hotbar slot where the written book is located.
+    pub slot: VarInt,
+    /// Text from each page. Maximum string length is 1024 chars.
+    pub entries: BoundedPrefixedArray<BoundedString<1024>, 100>,
+    /// Title of book. Present if book is being signed, not present if book is
+    /// being edited.
+    pub title: PrefixedOptional<BoundedString<32>>,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "entity_tag_query",
+    id = 0x19,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Used when F3+I is pressed while looking at an entity.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Query_Entity_Tag)
+pub struct QueryEntityTag {
+    /// An incremental ID so that the client can verify that the response
+    /// matches.
+    pub transaction_id: VarInt,
+    /// The ID of the entity to query.
+    pub entity_id: VarInt,
+}
+/// Hand used for an interaction.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Interact)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, ProtocolEnum)]
+#[protocol_enum(repr = VarInt)]
+pub enum InteractionHand {
+    /// Main hand.
+    MainHand = 0,
+    /// Off hand.
+    OffHand = 1,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "interact",
+    id = 0x1A,
+    state = Play,
+    direction = Serverbound,
+)]
+/// This packet is sent from the client to the server when the client right-clicks another entity (a player, minecart, etc).
+///
+/// A vanilla server only accepts this packet if the entity being clicked is visible without obstruction and within a 4-unit radius of the player's position.
+///
+/// The target offset field represents the difference between the vector location of the cursor at the time of the packet and the entity's position.
+///
+/// Note that middle-click in creative mode is interpreted by the client and sent as a [Set Creative Mode Slot](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Set_Creative_Mode_Slot) packet instead.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Interact)
+pub struct Interact {
+    /// The ID of the entity to interact. Note the special case described below.
+    pub entity_id: VarInt,
+    /// 0: main hand, 1: off hand.
+    pub hand: InteractionHand,
+    /// The difference between the vector location of the cursor at the time of the packet and the entity's position.
+    pub target_offset: LpVec3,
+    /// If the client is pressing the sneak key. Has the same effect as a Player Command Press/Release sneak key preceding the interaction, and the state is permanently changed.
+    pub sneak_key_pressed: Boolean,
+}
+#[derive(PacketCodec)]
+#[packet(
+    name = "jigsaw_generate",
+    id = 0x1B,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Sent when Generate is pressed on the [Jigsaw Block](https://minecraft.wiki/w/Jigsaw_Block) interface.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Jigsaw_Generate)
+pub struct JigsawGenerate {
+    /// Block entity location.
+    pub location: Position,
+    /// Value of the levels slider/max depth to generate.
+    pub levels: VarInt,
+    /// Keep Jigsaws.
+    pub keep_jigsaws: Boolean,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "keep_alive",
+    id = 0x1C,
+    state = Play,
+    direction = Serverbound,
+)]
+/// The server will frequently send out a keep-alive (see [Keep Alive (clientbound)](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Keep_Alive_(clientbound))), each containing a random ID. The client must respond with the same packet.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Keep_Alive_(serverbound))
+pub struct KeepAliveServerbound {
+    /// Keep Alive ID.
+    pub keep_alive_id: Long,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "lock_difficulty",
+    id = 0x1D,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Must have at least op level 2 to use. Appears to only be used on singleplayer; the difficulty buttons are still disabled in multiplayer.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Lock_Difficulty)
+pub struct LockDifficulty {
+    /// Locked.
+    pub locked: Boolean,
 }
