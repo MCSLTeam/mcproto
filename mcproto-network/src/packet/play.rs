@@ -1113,3 +1113,98 @@ pub struct LockDifficulty {
     /// Locked.
     pub locked: Boolean,
 }
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "move_player_pos",
+    id = 0x1E,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Updates the player's XYZ position on the server.
+///
+/// If the player is in a vehicle, the position is ignored. If the player is
+/// sleeping, the position is not changed, and a Synchronize Player Position is
+/// sent if the received position deviated from the server's view by more than a
+/// meter.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Set_Player_Position)
+pub struct SetPlayerPosition {
+    /// Absolute position.
+    pub x: Double,
+    /// Absolute feet position, normally Head Y - 1.62.
+    pub feet_y: Double,
+    /// Absolute position.
+    pub z: Double,
+    /// Bit field: 0x01: on ground, 0x02: pushing against wall.
+    pub flags: Byte,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "move_player_pos_rot",
+    id = 0x1F,
+    state = Play,
+    direction = Serverbound,
+)]
+/// A combination of Set Player Rotation and Set Player Position.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Set_Player_Position_and_Rotation)
+pub struct SetPlayerPositionAndRotation {
+    /// Absolute position.
+    pub x: Double,
+    /// Absolute feet position, normally Head Y - 1.62.
+    pub feet_y: Double,
+    /// Absolute position.
+    pub z: Double,
+    /// Absolute rotation on the X Axis, in degrees.
+    pub yaw: Float,
+    /// Absolute rotation on the Y Axis, in degrees.
+    pub pitch: Float,
+    /// Bit field: 0x01: on ground, 0x02: pushing against wall.
+    pub flags: Byte,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "move_player_rot",
+    id = 0x20,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Updates the direction the player is looking in.
+///
+/// Yaw is measured in degrees and does not follow classical trigonometry
+/// rules. The unit circle of yaw on the XZ-plane starts at (0, 1) and turns
+/// counterclockwise, with 90 at (-1, 0), 180 at (0,-1) and 270 at (1, 0).
+/// Additionally, yaw is not clamped to between 0 and 360 degrees; any number
+/// is valid, including negative numbers and numbers greater than 360.
+///
+/// Pitch is measured in degrees, where 0 is looking straight ahead, -90 is
+/// looking straight up, and 90 is looking straight down.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Set_Player_Rotation)
+pub struct SetPlayerRotation {
+    /// Absolute rotation on the X Axis, in degrees.
+    pub yaw: Float,
+    /// Absolute rotation on the Y Axis, in degrees.
+    pub pitch: Float,
+    /// Bit field: 0x01: on ground, 0x02: pushing against wall.
+    pub flags: Byte,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "move_player_status_only",
+    id = 0x21,
+    state = Play,
+    direction = Serverbound,
+)]
+/// This packet is used to indicate whether the player is on ground
+/// (walking/swimming) or airborne (jumping/falling).
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Set_Player_Movement_Flags)
+pub struct SetPlayerMovementFlags {
+    /// Bit field: 0x01: on ground, 0x02: pushing against wall.
+    pub flags: Byte,
+}
