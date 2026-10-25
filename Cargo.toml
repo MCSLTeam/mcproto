@@ -10,7 +10,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.7.0"
+version = "0.8.0"
 edition = "2024"
 authors = ["MCSLTeam <services@mcsl.com.cn>"]
 license = "MIT"
@@ -22,21 +22,21 @@ base64 = "0.23.1"
 bitflags = "2.13.2"
 cesu8 = "1.1.0"
 getrandom = "0.4.3"
-mcproto-codec = { version = "0.7.0", path = "mcproto-codec" }
-mcproto-derive = { version = "0.7.0", path = "mcproto-derive" }
-mcproto-network = { version = "0.7.0", path = "mcproto-network" }
-mcproto-oauth = { version = "0.7.0", path = "mcproto-oauth" }
-mcproto-types = { version = "0.7.0", path = "mcproto-types" }
+mcproto-codec = { version = "0.8.0", path = "mcproto-codec" }
+mcproto-derive = { version = "0.8.0", path = "mcproto-derive" }
+mcproto-network = { version = "0.8.0", path = "mcproto-network" }
+mcproto-oauth = { version = "0.8.0", path = "mcproto-oauth" }
+mcproto-types = { version = "0.8.0", path = "mcproto-types" }
 proc-macro2 = "1.0.107"
 quote = "1.0.47"
 reqwest = { version = "0.13.5", default-features = false, features = ["blocking", "json", "rustls", "form"] }
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json = { version = "1.0.151", features = ["unbounded_depth"] }
+serde_json = { version = "1.0.154", features = ["unbounded_depth"] }
 serde_stacker = "0.1.14"
-sha2 = "0.11.0"
+sha2 = "0.11.1"
 thiserror = "2.0.21"
-syn = { version = "3.0.6", features = ["full"] }
-tokio = { version = "1.53.1", features = ["io-util", "macros", "net", "rt", "time"] }
+syn = { version = "3.0.9", features = ["full"] }
+tokio = { version = "1.54.1", features = ["io-util", "macros", "net", "rt", "time"] }
 url = "2.5.8"
-uuid = { version = "1.26.1", default-features = false, features = ["std"] }
+uuid = { version = "1.29.0", default-features = false, features = ["std"] }
  
