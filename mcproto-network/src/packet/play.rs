@@ -10,17 +10,20 @@ pub use chunk::*;
 pub use container::*;
 pub use debug::*;
 
+use mcproto_codec::error::{CodecError, CodecKind};
 use mcproto_types::{
-    Angle, Boolean, BoundedPrefixedArray, BoundedString, Byte, CommandNode, Double, FixedBitSet,
-    FixedByteArray, Float, Identifier, Long, LpVec3, Nbt, Position, PrefixedArray,
-    PrefixedOptional, PrefixedString, ProtocolEnum, RemainingBytes, TextComponent, TypeStructCodec,
-    UnsignedByte, Uuid, VarInt,
+    Angle, Boolean, BoundedPrefixedArray, BoundedString, Byte, CommandNode, Context,
+    ContextualCodec, Double, FixedBitSet, FixedByteArray, Float, Identifier, Int, Long, LpVec3,
+    Nbt, Optional, Position, PrefixedArray, PrefixedOptional, PrefixedString, ProtocolEnum,
+    RemainingBytes, Short, Slot, TextComponent, TypeCodec, TypeStructCodec, UnsignedByte, Uuid,
+    VarInt, VarLong,
 };
 
-use crate::PacketCodec;
 use crate::packet::configuration::{
-    ChatMode, ClientLocale, DisplayedSkinParts, MainHand, ParticleStatus,
+    ChatMode, ClientLocale, CustomClickPayload, DisplayedSkinParts, MainHand, ParticleStatus,
+    ResourcePackResult,
 };
+use crate::{EncodePacket, Packet, PacketCodec, PacketId, PacketName, ProtocolState};
 
 #[derive(PacketCodec)]
 #[packet(
@@ -1465,4 +1468,800 @@ pub struct PlayerCommand {
     /// Only used by the "start jump with horse" action, in which case it ranges
     /// from 0 to 100. In all other cases it is 0.
     pub jump_boost: VarInt,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "player_input",
+    id = 0x2B,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Sent whenever the player presses or releases certain keys. The flags
+/// correspond directly to the states of their corresponding keys; the Sprint
+/// flag does not depend on whether the player is actually able to sprint at
+/// the moment.
+///
+/// Used by the vanilla server for minecart controls, player inputs in the
+/// `entity_properties` predicate, and sneaking (sprinting is still controlled
+/// by Player Command).
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Player_Input)
+pub struct PlayerInput {
+    /// Bit mask:
+    ///
+    /// - 0x01: Forward
+    /// - 0x02: Backward
+    /// - 0x04: Left
+    /// - 0x08: Right
+    /// - 0x10: Jump
+    /// - 0x20: Sneak
+    /// - 0x40: Sprint
+    pub flags: UnsignedByte,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "player_loaded",
+    id = 0x2C,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Sent by the client to indicate that it is ready to start simulating the
+/// player. The vanilla client sends this when the "Loading terrain..." screen
+/// is closed.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Player_Loaded)
+pub struct PlayerLoaded;
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "pong",
+    id = 0x2D,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Response to the clientbound Ping packet with the same ID.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Pong)
+pub struct Pong {
+    /// Ping ID copied from the request.
+    pub id: Int,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "punch",
+    id = 0x2E,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Sent when the client punches.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Punch)
+pub struct Punch;
+
+/// Recipe book selected by the Change Recipe Book Settings packet.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Change_Recipe_Book_Settings)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, ProtocolEnum)]
+#[protocol_enum(repr = VarInt)]
+pub enum RecipeBookType {
+    /// Crafting recipe book.
+    Crafting = 0,
+    /// Furnace recipe book.
+    Furnace = 1,
+    /// Blast furnace recipe book.
+    BlastFurnace = 2,
+    /// Smoker recipe book.
+    Smoker = 3,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "recipe_book_change_settings",
+    id = 0x2F,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Replaces Recipe Book Data, type 1.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Change_Recipe_Book_Settings)
+pub struct ChangeRecipeBookSettings {
+    /// Recipe book being changed.
+    pub book_id: RecipeBookType,
+    /// Whether the recipe book is open.
+    pub book_open: Boolean,
+    /// Whether the recipe book filter is active.
+    pub filter_active: Boolean,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "recipe_book_seen_recipe",
+    id = 0x30,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Sent when a recipe is first seen in the recipe book. Replaces Recipe Book
+/// Data, type 0.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Set_Seen_Recipe)
+pub struct SetSeenRecipe {
+    /// ID of a recipe previously defined in Recipe Book Add.
+    pub recipe_id: VarInt,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "rename_item",
+    id = 0x31,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Sent as a player is renaming an item in an anvil; each keypress in the
+/// anvil UI sends a new Rename Item packet. If the new name is empty, then the
+/// item loses its custom name.
+///
+/// The item name may be no longer than 50 characters, and if it is longer than
+/// that, then the rename is silently ignored.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Rename_Item)
+pub struct RenameItem {
+    /// The new name of the item.
+    pub item_name: BoundedString<32767>,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "resource_pack",
+    id = 0x32,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Reports the client's handling of a resource-pack request.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Resource_Pack_Response)
+pub struct ResourcePackResponse {
+    /// The unique identifier of the resource pack received in the Add Resource
+    /// Pack request.
+    pub uuid: Uuid,
+    /// Current result of processing the resource pack.
+    pub result: ResourcePackResult,
+}
+
+/// Action performed by the Seen Advancements packet.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Seen_Advancements)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, ProtocolEnum)]
+#[protocol_enum(repr = VarInt)]
+pub enum SeenAdvancementsAction {
+    /// Opened tab.
+    OpenedTab = 0,
+    /// Closed screen.
+    ClosedScreen = 1,
+}
+
+/// Informs the server which advancements tab is open or that the screen closed.
+///
+/// The tab identifier is present only when the action is
+/// [`OpenedTab`](SeenAdvancementsAction::OpenedTab).
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Seen_Advancements)
+#[derive(Debug, Clone, PartialEq)]
+pub struct SeenAdvancements {
+    /// The advancement-tab action being reported.
+    pub action: SeenAdvancementsAction,
+    /// Advancement tab identifier, present only when a tab was opened.
+    pub tab_id: Optional<Identifier>,
+}
+
+impl Packet for SeenAdvancements {
+    const NAME: PacketName = PacketName::new("seen_advancements");
+    const ID: PacketId = match PacketId::new(0x33) {
+        Some(id) => id,
+        None => panic!("packet ID must be non-negative"),
+    };
+    const STATE: ProtocolState = ProtocolState::Play;
+    const DIRECTION: crate::Direction = crate::Direction::Serverbound;
+}
+
+impl EncodePacket for SeenAdvancements {
+    fn encode_body(&self, writer: &mut impl std::io::Write) -> Result<(), CodecError> {
+        self.action
+            .encode(writer)
+            .map_err(|error| error.with_context(CodecKind::TypeStruct))?;
+        self.tab_id
+            .encode_with_context(
+                writer,
+                &Context::new(self.action == SeenAdvancementsAction::OpenedTab),
+            )
+            .map_err(|error| error.with_context(CodecKind::TypeStruct))
+    }
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "select_trade",
+    id = 0x34,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Sent when a player selects a specific trade offered by a villager NPC.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Select_Trade)
+pub struct SelectTrade {
+    /// The selected slot in the player's current (trading) inventory.
+    pub selected_slot: VarInt,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "set_beacon",
+    id = 0x35,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Changes the effect of the current beacon.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Set_Beacon_Effect)
+pub struct SetBeaconEffect {
+    /// A Potion ID.
+    pub primary_effect: PrefixedOptional<VarInt>,
+    /// A Potion ID.
+    pub secondary_effect: PrefixedOptional<VarInt>,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "set_carried_item",
+    id = 0x36,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Sent when the player changes the slot selection.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Set_Held_Item_(serverbound))
+pub struct SetHeldItemServerbound {
+    /// The slot which the player has selected (0-8).
+    pub slot: Short,
+}
+
+/// Mode of a command block programmed by the client.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Program_Command_Block)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, ProtocolEnum)]
+#[protocol_enum(repr = VarInt)]
+pub enum CommandBlockMode {
+    /// Chain command block.
+    Chain = 0,
+    /// Repeating command block.
+    Repeating = 1,
+    /// Impulse command block.
+    Impulse = 2,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "set_command_block",
+    id = 0x37,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Programs a command block at the supplied location.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Program_Command_Block)
+pub struct ProgramCommandBlock {
+    /// Command-block location.
+    pub location: Position,
+    /// Command to store in the block.
+    pub command: BoundedString<32767>,
+    /// Command-block execution mode.
+    pub mode: CommandBlockMode,
+    /// 0x01: Track Output (if false, the output of the previous command will
+    /// not be stored within the command block); 0x02: Is conditional; 0x04:
+    /// Automatic.
+    pub flags: Byte,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "set_command_minecart",
+    id = 0x38,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Programs a command-block minecart.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Program_Command_Block_Minecart)
+pub struct ProgramCommandBlockMinecart {
+    /// Runtime entity ID of the command-block minecart.
+    pub entity_id: VarInt,
+    /// Command to store in the minecart.
+    pub command: BoundedString<32767>,
+    /// If false, the output of the previous command will not be stored within
+    /// the command block.
+    pub track_output: Boolean,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "set_creative_mode_slot",
+    id = 0x39,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Sets a slot while the user is in the standard inventory in Creative mode.
+///
+/// Clicking in the creative inventory menu is quite different from
+/// non-creative inventory management. Picking up an item with the mouse
+/// deletes the item from the server, and placing an item into a slot or
+/// dropping it out of the inventory tells the server to create the item.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Set_Creative_Mode_Slot)
+pub struct SetCreativeModeSlot {
+    /// Inventory slot.
+    pub slot: Short,
+    /// Item to place in the slot.
+    pub clicked_item: Slot,
+}
+
+/// One game-rule assignment inside the Set Game Rules packet.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, TypeStructCodec)]
+#[type_struct_codec(kind = TypeStruct)]
+pub struct GameRule {
+    /// Game-rule identifier.
+    pub name: Identifier,
+    /// New game-rule value.
+    pub value: BoundedString<32767>,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "set_game_rule",
+    id = 0x3A,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Changes one or more game rules.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Set_Game_Rules)
+pub struct SetGameRules {
+    /// Game-rule names and their new values.
+    pub rules: PrefixedArray<GameRule>,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "set_jigsaw_block",
+    id = 0x3B,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Sent when Done is pressed on the Jigsaw Block interface.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Program_Jigsaw_Block)
+pub struct ProgramJigsawBlock {
+    /// Block entity location.
+    pub location: Position,
+    /// Jigsaw block name.
+    pub name: Identifier,
+    /// Target jigsaw pool element.
+    pub target: Identifier,
+    /// Jigsaw pool.
+    pub pool: Identifier,
+    /// "Turns into" on the GUI, `final_state` in NBT.
+    pub final_state: BoundedString<32767>,
+    /// `rollable` if the attached piece can be rotated, else `aligned`.
+    pub joint_type: BoundedString<32767>,
+    /// Selection priority.
+    pub selection_priority: VarInt,
+    /// Placement priority.
+    pub placement_priority: VarInt,
+}
+
+/// Additional action performed by the Program Structure Block packet.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Program_Structure_Block)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, ProtocolEnum)]
+#[protocol_enum(repr = VarInt)]
+pub enum StructureBlockAction {
+    /// Update data.
+    UpdateData = 0,
+    /// Save the structure.
+    Save = 1,
+    /// Load the structure.
+    Load = 2,
+    /// Detect size.
+    DetectSize = 3,
+}
+
+/// Structure-block operating mode.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Program_Structure_Block)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, ProtocolEnum)]
+#[protocol_enum(repr = VarInt)]
+pub enum StructureBlockMode {
+    /// Save mode.
+    Save = 0,
+    /// Load mode.
+    Load = 1,
+    /// Corner mode.
+    Corner = 2,
+    /// Data mode.
+    Data = 3,
+}
+
+/// Structure mirroring mode.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Program_Structure_Block)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, ProtocolEnum)]
+#[protocol_enum(repr = VarInt)]
+pub enum StructureMirror {
+    /// No mirroring.
+    None = 0,
+    /// Mirror left to right.
+    LeftRight = 1,
+    /// Mirror front to back.
+    FrontBack = 2,
+}
+
+/// Structure rotation mode.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Program_Structure_Block)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, ProtocolEnum)]
+#[protocol_enum(repr = VarInt)]
+pub enum StructureRotation {
+    /// No rotation.
+    None = 0,
+    /// Clockwise 90 degrees.
+    Clockwise90 = 1,
+    /// Clockwise 180 degrees.
+    Clockwise180 = 2,
+    /// Counter-clockwise 90 degrees.
+    Counterclockwise90 = 3,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "set_structure_block",
+    id = 0x3C,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Programs a structure block at the supplied location.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Program_Structure_Block)
+pub struct ProgramStructureBlock {
+    /// Block entity location.
+    pub location: Position,
+    /// An additional action to perform beyond simply saving the given data.
+    pub action: StructureBlockAction,
+    /// Structure-block operating mode.
+    pub mode: StructureBlockMode,
+    /// Structure name.
+    pub name: BoundedString<32767>,
+    /// X offset, between -48 and 48.
+    pub offset_x: Byte,
+    /// Y offset, between -48 and 48.
+    pub offset_y: Byte,
+    /// Z offset, between -48 and 48.
+    pub offset_z: Byte,
+    /// X size, between 0 and 48.
+    pub size_x: Byte,
+    /// Y size, between 0 and 48.
+    pub size_y: Byte,
+    /// Z size, between 0 and 48.
+    pub size_z: Byte,
+    /// Structure mirroring mode.
+    pub mirror: StructureMirror,
+    /// Structure rotation mode.
+    pub rotation: StructureRotation,
+    /// Structure metadata.
+    pub metadata: BoundedString<128>,
+    /// Integrity, between 0 and 1.
+    pub integrity: Float,
+    /// Random seed.
+    pub seed: VarLong,
+    /// 0x01: Ignore entities; 0x02: Show air; 0x04: Show bounding box; 0x08:
+    /// Strict placement.
+    pub flags: Byte,
+}
+
+/// Mode selected by the Set Test Block packet.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Set_Test_Block)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, ProtocolEnum)]
+#[protocol_enum(repr = VarInt)]
+pub enum TestBlockMode {
+    /// Start.
+    Start = 0,
+    /// Log.
+    Log = 1,
+    /// Fail.
+    Fail = 2,
+    /// Accept.
+    Accept = 3,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "set_test_block",
+    id = 0x3D,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Updates the value of the Test Block at the given position.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Set_Test_Block)
+pub struct SetTestBlock {
+    /// Test-block position.
+    pub position: Position,
+    /// Test-block mode.
+    pub mode: TestBlockMode,
+    /// Message associated with the selected mode.
+    pub message: PrefixedString,
+}
+
+/// Sign text slot updated by the Update Sign packet.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Update_Sign)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, ProtocolEnum)]
+#[protocol_enum(repr = VarInt)]
+pub enum SignTextSlot {
+    /// Back of the sign.
+    Back = 0,
+    /// Front of the sign.
+    Front = 1,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "sign_update",
+    id = 0x3E,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Sent when the Done button is pushed after editing a sign.
+///
+/// The server only accepts this packet after Open Sign Editor; otherwise it is
+/// silently ignored.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Update_Sign)
+pub struct UpdateSign {
+    /// Block coordinates.
+    pub location: Position,
+    /// First line of text in the sign.
+    pub line_1: BoundedString<384>,
+    /// Second line of text in the sign.
+    pub line_2: BoundedString<384>,
+    /// Third line of text in the sign.
+    pub line_3: BoundedString<384>,
+    /// Fourth line of text in the sign.
+    pub line_4: BoundedString<384>,
+    /// Selects which sign text slot is updated.
+    pub text_slot: SignTextSlot,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "spectator_action",
+    id = 0x3F,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Sent when the player left-clicks in spectator mode.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Spectator_Action)
+pub struct SpectatorAction {
+    /// If 0, the player was not targeting an entity. Otherwise the ID of the
+    /// targeted entity plus 1.
+    pub entity_id: VarInt,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "teleport_to_entity",
+    id = 0x40,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Teleports the player to the given entity. The player must be in spectator
+/// mode.
+///
+/// The vanilla client only uses this to teleport to players, but the server
+/// appears to accept any type of entity. If the given entity cannot be found
+/// or is not loaded, this packet is ignored.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Teleport_To_Entity)
+pub struct TeleportToEntity {
+    /// UUID of the player to teleport to; can also be an entity UUID.
+    pub target_player: Uuid,
+}
+
+/// Action performed by the Test Instance Block Action packet.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Test_Instance_Block_Action)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, ProtocolEnum)]
+#[protocol_enum(repr = VarInt)]
+pub enum TestInstanceBlockActionType {
+    /// Init.
+    Init = 0,
+    /// Query.
+    Query = 1,
+    /// Set.
+    Set = 2,
+    /// Reset.
+    Reset = 3,
+    /// Save.
+    Save = 4,
+    /// Export.
+    Export = 5,
+    /// Run.
+    Run = 6,
+}
+
+/// Rotation applied to a test instance.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Test_Instance_Block_Action)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, ProtocolEnum)]
+#[protocol_enum(repr = VarInt)]
+pub enum TestInstanceRotation {
+    /// No rotation.
+    None = 0,
+    /// Clockwise 90 degrees.
+    Clockwise90 = 1,
+    /// Clockwise 180 degrees.
+    Clockwise180 = 2,
+    /// Counter-clockwise 90 degrees.
+    Counterclockwise90 = 3,
+}
+
+/// Status of a test instance.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Test_Instance_Block_Action)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, ProtocolEnum)]
+#[protocol_enum(repr = VarInt)]
+pub enum TestInstanceStatus {
+    /// Cleared.
+    Cleared = 0,
+    /// Running.
+    Running = 1,
+    /// Finished.
+    Finished = 2,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "test_instance_block_action",
+    id = 0x41,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Tries to perform an action on the Test Instance Block at the given
+/// position.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Test_Instance_Block_Action)
+pub struct TestInstanceBlockAction {
+    /// Test-instance block position.
+    pub position: Position,
+    /// Action to perform.
+    pub action: TestInstanceBlockActionType,
+    /// ID in the `minecraft:test_instance` registry.
+    pub test: PrefixedOptional<Identifier>,
+    /// Test-instance size on the X axis.
+    pub size_x: VarInt,
+    /// Test-instance size on the Y axis.
+    pub size_y: VarInt,
+    /// Test-instance size on the Z axis.
+    pub size_z: VarInt,
+    /// Test-instance rotation.
+    pub rotation: TestInstanceRotation,
+    /// Whether entities are ignored.
+    pub ignore_entities: Boolean,
+    /// Current test-instance status.
+    pub status: TestInstanceStatus,
+    /// Error message shown for the test instance.
+    pub error_message: PrefixedOptional<TextComponent>,
+}
+
+/// Block face used by the Use Item On packet.
+///
+/// This enum has the same face ordering as
+/// [`BlockFace`](crate::packet::play::BlockFace), but is encoded as a VarInt
+/// rather than a Byte.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Use_Item_On)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, ProtocolEnum)]
+#[protocol_enum(repr = VarInt)]
+pub enum UseItemFace {
+    /// Bottom.
+    Bottom = 0,
+    /// Top.
+    Top = 1,
+    /// North.
+    North = 2,
+    /// South.
+    South = 3,
+    /// West.
+    West = 4,
+    /// East.
+    East = 5,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "use_item_on",
+    id = 0x42,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Sent when the player uses an item on a block.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Use_Item_On)
+pub struct UseItemOn {
+    /// The hand from which the block is placed; 0: main hand, 1: off hand.
+    pub hand: InteractionHand,
+    /// Block position.
+    pub location: Position,
+    /// The face on which the block is placed, with the same face ordering as
+    /// Player Action.
+    pub face: UseItemFace,
+    /// The position of the crosshair on the block, from 0 to 1 increasing from
+    /// west to east.
+    pub cursor_position_x: Float,
+    /// The position of the crosshair on the block, from 0 to 1 increasing from
+    /// bottom to top.
+    pub cursor_position_y: Float,
+    /// The position of the crosshair on the block, from 0 to 1 increasing from
+    /// north to south.
+    pub cursor_position_z: Float,
+    /// True when the player's head is inside of a block.
+    pub inside_block: Boolean,
+    /// Seems to always be false, even when interacting with blocks around or
+    /// outside the world border, or while the player is outside the border.
+    pub world_border_hit: Boolean,
+    /// Block change sequence number.
+    pub sequence: VarInt,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "use_item",
+    id = 0x43,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Sent when pressing the Use Item key (default: right click) with an item in
+/// hand.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Use_Item)
+pub struct UseItem {
+    /// Hand used for the animation. 0: main hand, 1: off hand.
+    pub hand: InteractionHand,
+    /// Block change sequence number.
+    pub sequence: VarInt,
+    /// Player head rotation around the Y axis.
+    pub yaw: Float,
+    /// Player head rotation around the X axis.
+    pub pitch: Float,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "custom_click_action",
+    id = 0x44,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Sent when the client clicks a text component with the `minecraft:custom`
+/// click action. This is meant as an alternative to running a command, but has
+/// no effect on vanilla servers.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Custom_Click_Action)
+pub struct CustomClickAction {
+    /// The identifier for the click action.
+    pub id: Identifier,
+    /// Length-prefixed NBT payload, which may be a lone `TAG_End`.
+    pub payload: CustomClickPayload,
 }
