@@ -1208,3 +1208,261 @@ pub struct SetPlayerMovementFlags {
     /// Bit field: 0x01: on ground, 0x02: pushing against wall.
     pub flags: Byte,
 }
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "move_vehicle",
+    id = 0x22,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Sent when a player moves in a client-side-controlled vehicle. Fields are
+/// the same position and rotation values as in Set Player Position and
+/// Rotation, followed by On Ground. All position and rotation fields are
+/// absolute.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Move_Vehicle_(serverbound))
+pub struct MoveVehicleServerbound {
+    /// Absolute position (X coordinate).
+    pub x: Double,
+    /// Absolute position (Y coordinate).
+    pub y: Double,
+    /// Absolute position (Z coordinate).
+    pub z: Double,
+    /// Absolute rotation on the vertical axis, in degrees.
+    pub yaw: Float,
+    /// Absolute rotation on the horizontal axis, in degrees.
+    pub pitch: Float,
+    /// Whether the vehicle is on the ground.
+    pub on_ground: Boolean,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "paddle_boat",
+    id = 0x23,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Used to *visually* update whether boat paddles are turning. The server
+/// will update the Boat entity metadata to match the values here.
+///
+/// Right paddle turning is set to true when the left button or forward button
+/// is held, left paddle turning is set to true when the right button or
+/// forward button is held.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Paddle_Boat)
+pub struct PaddleBoat {
+    /// Left paddle turning.
+    pub left_paddle_turning: Boolean,
+    /// Right paddle turning.
+    pub right_paddle_turning: Boolean,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "pick_item_from_block",
+    id = 0x24,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Used for pick block functionality (middle click) on blocks to retrieve
+/// items from the inventory in survival or creative mode or create them in
+/// creative mode.
+///
+/// See [Controls#Pick Block](https://minecraft.wiki/w/Controls#Pick_Block) for
+/// more information.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Pick_Item_From_Block)
+pub struct PickItemFromBlock {
+    /// The location of the block.
+    pub location: Position,
+    /// Used to tell the server to include block data in the new stack, works
+    /// only if in creative mode.
+    pub include_data: Boolean,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "pick_item_from_entity",
+    id = 0x25,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Used for pick block functionality (middle click) on entities to retrieve
+/// items from the inventory in survival or creative mode or create them in
+/// creative mode.
+///
+/// See [Controls#Pick Block](https://minecraft.wiki/w/Controls#Pick_Block) for
+/// more information.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Pick_Item_From_Entity)
+pub struct PickItemFromEntity {
+    /// The ID of the entity to pick.
+    pub entity_id: VarInt,
+    /// Unused by the vanilla server.
+    pub include_data: Boolean,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "ping_request",
+    id = 0x26,
+    state = Play,
+    direction = Serverbound,
+)]
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Ping_Request)
+pub struct PingRequest {
+    /// May be any number, but vanilla clients will always use the timestamp in
+    /// milliseconds.
+    pub id: Long,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "place_recipe",
+    id = 0x27,
+    state = Play,
+    direction = Serverbound,
+)]
+/// This packet is sent when a player clicks a recipe in the crafting book that
+/// is craftable (white border).
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Place_Recipe)
+pub struct PlaceRecipe {
+    /// Window ID.
+    pub window_id: VarInt,
+    /// ID of recipe previously defined in Recipe Book Add.
+    pub recipe_id: VarInt,
+    /// Affects the amount of items processed; true if shift is down when
+    /// clicked.
+    pub make_all: Boolean,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "player_abilities",
+    id = 0x28,
+    state = Play,
+    direction = Serverbound,
+)]
+/// The vanilla client sends this packet when the player starts/stops flying
+/// with the Flags parameter changed accordingly.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Player_Abilities_(serverbound))
+pub struct PlayerAbilitiesServerbound {
+    /// Bit mask. 0x02: is flying.
+    pub flags: Byte,
+}
+
+/// The action the player is taking against the block.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Player_Action)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, ProtocolEnum)]
+#[protocol_enum(repr = VarInt)]
+pub enum PlayerActionStatus {
+    /// Started digging.
+    StartedDigging = 0,
+    /// Cancelled digging.
+    CancelledDigging = 1,
+    /// Finished digging.
+    FinishedDigging = 2,
+    /// Drop item stack.
+    DropItemStack = 3,
+    /// Drop item.
+    DropItem = 4,
+    /// Shoot arrow / finish eating.
+    ShootArrowOrFinishEating = 5,
+    /// Swap item in hand.
+    SwapItemInHand = 6,
+    /// Stab.
+    Stab = 7,
+}
+
+/// The face being hit.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Player_Action)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, ProtocolEnum)]
+#[protocol_enum(repr = Byte)]
+pub enum BlockFace {
+    /// Bottom.
+    Bottom = 0,
+    /// Top.
+    Top = 1,
+    /// North.
+    North = 2,
+    /// South.
+    South = 3,
+    /// West.
+    West = 4,
+    /// East.
+    East = 5,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "player_action",
+    id = 0x29,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Sent when the player mines a block.
+///
+/// A vanilla server only accepts digging packets with coordinates within a
+/// 6-unit radius between the center of the block and the player's eyes.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Player_Action)
+pub struct PlayerAction {
+    /// The action the player is taking against the block.
+    pub status: PlayerActionStatus,
+    /// Block position.
+    pub location: Position,
+    /// The face being hit.
+    pub face: BlockFace,
+    /// Block change sequence number (see Acknowledge Block Change).
+    pub sequence: VarInt,
+}
+
+/// The action performed by the Player Command packet.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Player_Command)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, ProtocolEnum)]
+#[protocol_enum(repr = VarInt)]
+pub enum PlayerCommandAction {
+    /// Leave bed.
+    LeaveBed = 0,
+    /// Start sprinting.
+    StartSprinting = 1,
+    /// Stop sprinting.
+    StopSprinting = 2,
+    /// Start jump with horse.
+    StartJumpWithHorse = 3,
+    /// Stop jump with horse.
+    StopJumpWithHorse = 4,
+    /// Open vehicle inventory.
+    OpenVehicleInventory = 5,
+    /// Start flying with elytra.
+    StartFlyingWithElytra = 6,
+}
+
+#[derive(PacketCodec)]
+#[packet(
+    name = "player_command",
+    id = 0x2A,
+    state = Play,
+    direction = Serverbound,
+)]
+/// Sent by the client to indicate that it has performed certain actions:
+/// sprinting, exiting a bed, jumping with a horse, and opening a horse's
+/// inventory while riding it.
+///
+/// [Wiki](https://minecraft.wiki/w/Java_Edition_protocol/Packets#Player_Command)
+pub struct PlayerCommand {
+    /// Player ID (ignored by the vanilla server).
+    pub entity_id: VarInt,
+    /// The ID of the action.
+    pub action_id: PlayerCommandAction,
+    /// Only used by the "start jump with horse" action, in which case it ranges
+    /// from 0 to 100. In all other cases it is 0.
+    pub jump_boost: VarInt,
+}
