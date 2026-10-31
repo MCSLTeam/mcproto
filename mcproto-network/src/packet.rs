@@ -13,7 +13,10 @@ use std::{
 
 use crate::error::{CompressionError, FrameError, IoOperation, NetworkError, PacketIdError};
 use crate::{CompressionMode, DecryptionMode, Direction, EncryptionMode, ProtocolState};
-use mcproto_codec::varint::{VarIntRead, VarIntWrite};
+use mcproto_codec::{
+    error::CodecError,
+    varint::{VarIntRead, VarIntWrite},
+};
 
 /// The maximum packet-frame payload accepted by the default limits.
 pub const DEFAULT_MAX_FRAME_LENGTH: usize = (1 << 21) - 1;
@@ -117,6 +120,32 @@ impl fmt::Display for PacketName {
     }
 }
 
+/// Complete metadata identifying one packet type in the protocol.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PacketInfo {
+    /// Stable official packet name.
+    pub name: PacketName,
+    /// Numeric packet ID encoded as a VarInt.
+    pub id: PacketId,
+    /// Protocol state in which the packet is valid.
+    pub state: ProtocolState,
+    /// Direction in which the packet is valid.
+    pub direction: Direction,
+}
+
+impl PacketInfo {
+    /// Returns the metadata declared by a packet type.
+    #[must_use]
+    pub fn of<P: Packet + ?Sized>() -> Self {
+        Self {
+            name: P::NAME,
+            id: P::ID,
+            state: P::STATE,
+            direction: P::DIRECTION,
+        }
+    }
+}
+
 /// Metadata shared by packets in either protocol direction.
 ///
 /// Packet types carry the numeric ID for the protocol version they implement.
@@ -129,6 +158,42 @@ pub trait Packet {
     const STATE: ProtocolState;
     /// Direction in which the packet is valid.
     const DIRECTION: Direction;
+
+    /// Returns the stable official packet name.
+    #[must_use]
+    fn name() -> PacketName {
+        Self::NAME
+    }
+
+    /// Returns the numeric packet ID.
+    #[must_use]
+    fn id() -> PacketId {
+        Self::ID
+    }
+
+    /// Returns the protocol state in which the packet is valid.
+    #[must_use]
+    fn state() -> ProtocolState {
+        Self::STATE
+    }
+
+    /// Returns the direction in which the packet is valid.
+    #[must_use]
+    fn direction() -> Direction {
+        Self::DIRECTION
+    }
+
+    /// Returns all packet metadata in one value.
+    #[must_use]
+    fn info() -> PacketInfo {
+        PacketInfo::of::<Self>()
+    }
+
+    /// Returns whether this packet type uses the supplied packet ID.
+    #[must_use]
+    fn matches_id(packet_id: PacketId) -> bool {
+        Self::ID == packet_id
+    }
 }
 
 /// A serverbound packet that can be encoded by a client.
@@ -462,6 +527,36 @@ pub struct PacketPayload {
     body_offset: usize,
 }
 
+/// An error returned while decoding a typed packet from a raw payload.
+#[derive(Debug, thiserror::Error)]
+pub enum PacketPayloadError {
+    /// The payload ID does not match the requested packet type.
+    #[error("packet ID mismatch: expected {expected}, got {actual}")]
+    PacketIdMismatch {
+        /// Packet ID declared by the requested type.
+        expected: PacketId,
+        /// Packet ID read from the frame.
+        actual: PacketId,
+    },
+    /// The packet body codec failed.
+    #[error("packet codec failed for packet {packet_id}: {source}")]
+    Codec {
+        /// Packet ID whose body was being decoded.
+        packet_id: PacketId,
+        /// The detailed codec error.
+        #[source]
+        source: CodecError,
+    },
+    /// The requested packet type did not consume the complete body.
+    #[error("packet {packet_id} body contains {remaining} trailing bytes after decoding")]
+    TrailingBytes {
+        /// Packet ID whose body was being decoded.
+        packet_id: PacketId,
+        /// Number of bytes left after decoding.
+        remaining: usize,
+    },
+}
+
 impl PacketPayload {
     /// Returns the packet body without its ID prefix.
     #[must_use]
@@ -475,6 +570,32 @@ impl PacketPayload {
         self.data.copy_within(self.body_offset.., 0);
         self.data.truncate(self.data.len() - self.body_offset);
         self.data
+    }
+
+    /// Decodes this payload as the requested packet type.
+    ///
+    /// The packet ID must match [`DecodePacket::ID`], and the body decoder must
+    /// consume every byte in the packet body.
+    pub fn decode<T: DecodePacket>(&self) -> Result<T, PacketPayloadError> {
+        if self.packet_id != T::ID {
+            return Err(PacketPayloadError::PacketIdMismatch {
+                expected: T::ID,
+                actual: self.packet_id,
+            });
+        }
+
+        let mut body = self.body();
+        let packet = T::decode_body(&mut body).map_err(|source| PacketPayloadError::Codec {
+            packet_id: self.packet_id,
+            source,
+        })?;
+        if !body.is_empty() {
+            return Err(PacketPayloadError::TrailingBytes {
+                packet_id: self.packet_id,
+                remaining: body.len(),
+            });
+        }
+        Ok(packet)
     }
 }
 

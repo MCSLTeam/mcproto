@@ -21,8 +21,8 @@ pub use error::{
 };
 pub use mcproto_derive::PacketCodec;
 pub use packet::{
-    DecodePacket, EncodePacket, Packet, PacketEncoder, PacketId, PacketLimits, PacketName,
-    PacketPayload, PacketReadLimits, PacketReader,
+    DecodePacket, EncodePacket, Packet, PacketEncoder, PacketId, PacketInfo, PacketLimits,
+    PacketName, PacketPayload, PacketPayloadError, PacketReadLimits, PacketReader,
 };
 pub use state::{CompressionMode, DecryptionMode, Direction, EncryptionMode, ProtocolState};
 
