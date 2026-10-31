@@ -163,6 +163,17 @@ pub enum FrameError {
     /// The packet payload did not contain a packet ID.
     #[error("packet payload does not contain a packet ID")]
     MissingPacketId,
+
+    /// A compressed frame did not contain its Data Length field.
+    #[error("compressed packet frame does not contain a data length")]
+    MissingDataLength,
+
+    /// The packet payload contained a negative packet ID.
+    #[error("packet ID must be non-negative, got {value}")]
+    InvalidPacketId {
+        /// The negative packet ID decoded from the frame.
+        value: i32,
+    },
 }
 
 /// Errors reported by a compression implementation.

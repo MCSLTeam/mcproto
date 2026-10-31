@@ -6,14 +6,21 @@ pub mod login;
 pub mod play;
 pub mod status;
 
-use std::fmt;
+use std::{
+    fmt,
+    io::{BufReader, Read},
+};
 
-use crate::error::{FrameError, NetworkError, PacketIdError};
-use crate::{CompressionMode, Direction, EncryptionMode, ProtocolState};
-use mcproto_codec::varint::VarIntWrite;
+use crate::error::{CompressionError, FrameError, IoOperation, NetworkError, PacketIdError};
+use crate::{CompressionMode, DecryptionMode, Direction, EncryptionMode, ProtocolState};
+use mcproto_codec::varint::{VarIntRead, VarIntWrite};
 
 /// The maximum packet-frame payload accepted by the default limits.
 pub const DEFAULT_MAX_FRAME_LENGTH: usize = (1 << 21) - 1;
+/// The maximum uncompressed packet payload accepted by the reader defaults.
+///
+/// This follows the protocol's serverbound compressed packet limit of 8 MiB.
+pub const DEFAULT_MAX_UNCOMPRESSED_LENGTH: usize = 1 << 23;
 
 /// A validated non-negative Minecraft packet ID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -197,6 +204,24 @@ impl Default for PacketLimits {
     }
 }
 
+/// Resource limits applied while reading and decompressing packet frames.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PacketReadLimits {
+    /// Maximum bytes after the outer Packet Length prefix.
+    pub max_frame_length: usize,
+    /// Maximum bytes after decompression.
+    pub max_uncompressed_length: usize,
+}
+
+impl Default for PacketReadLimits {
+    fn default() -> Self {
+        Self {
+            max_frame_length: DEFAULT_MAX_FRAME_LENGTH,
+            max_uncompressed_length: DEFAULT_MAX_UNCOMPRESSED_LENGTH,
+        }
+    }
+}
+
 /// Encodes packet bodies, applies compression framing, then encrypts frames.
 pub struct PacketEncoder {
     compression: CompressionMode,
@@ -333,5 +358,268 @@ impl PacketEncoder {
                 Ok(data)
             }
         }
+    }
+}
+
+/// One decoded packet ID and its body bytes.
+///
+/// The packet ID prefix remains inside the owned allocation so reading a
+/// payload does not require copying the body. Use [`body`](Self::body) for a
+/// borrowed body slice or [`into_body`](Self::into_body) to compact the buffer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PacketPayload {
+    /// Numeric packet ID read from the payload.
+    pub packet_id: PacketId,
+    data: Vec<u8>,
+    body_offset: usize,
+}
+
+impl PacketPayload {
+    /// Returns the packet body without its ID prefix.
+    #[must_use]
+    pub fn body(&self) -> &[u8] {
+        &self.data[self.body_offset..]
+    }
+
+    /// Extracts the packet body without its ID prefix.
+    #[must_use]
+    pub fn into_body(mut self) -> Vec<u8> {
+        self.data.copy_within(self.body_offset.., 0);
+        self.data.truncate(self.data.len() - self.body_offset);
+        self.data
+    }
+}
+
+/// Reads, decrypts, decompresses, and parses inbound packet frames.
+///
+/// The reader owns the inbound cipher state because Minecraft's stream cipher
+/// spans packet boundaries. Compression processing is packet-local.
+pub struct PacketReader<R> {
+    reader: BufReader<R>,
+    compression: CompressionMode,
+    decryption: DecryptionMode,
+    limits: PacketReadLimits,
+}
+
+impl<R: Read> PacketReader<R> {
+    /// Creates a reader with the negotiated compression, decryption, and limits.
+    #[must_use]
+    pub fn new(
+        reader: R,
+        compression: CompressionMode,
+        decryption: DecryptionMode,
+        limits: PacketReadLimits,
+    ) -> Self {
+        Self {
+            reader: BufReader::new(reader),
+            compression,
+            decryption,
+            limits,
+        }
+    }
+
+    /// Returns the active compression mode.
+    #[must_use]
+    pub const fn compression(&self) -> &CompressionMode {
+        &self.compression
+    }
+
+    /// Replaces compression mode at an explicit protocol boundary.
+    pub fn set_compression(&mut self, compression: CompressionMode) {
+        self.compression = compression;
+    }
+
+    /// Returns the active decryption mode.
+    #[must_use]
+    pub const fn decryption(&self) -> &DecryptionMode {
+        &self.decryption
+    }
+
+    /// Replaces decryption mode at an explicit protocol boundary.
+    pub fn set_decryption(&mut self, decryption: DecryptionMode) {
+        self.decryption = decryption;
+    }
+
+    /// Returns the active read limits.
+    #[must_use]
+    pub const fn limits(&self) -> PacketReadLimits {
+        self.limits
+    }
+
+    /// Replaces read limits.
+    pub fn set_limits(&mut self, limits: PacketReadLimits) {
+        self.limits = limits;
+    }
+
+    /// Reads one complete packet frame and returns its ID and body.
+    ///
+    /// A clean end of input before a frame starts is reported as
+    /// [`NetworkError::Closed`].
+    pub fn read_packet(&mut self) -> Result<PacketPayload, NetworkError> {
+        let frame_length = self.read_frame_length()?;
+        if frame_length < 0 {
+            return Err(FrameError::NegativeLength {
+                value: frame_length,
+            }
+            .into());
+        }
+        let frame_length = frame_length as usize;
+        if frame_length > self.limits.max_frame_length {
+            return Err(FrameError::LengthTooLarge {
+                actual: frame_length,
+                maximum: self.limits.max_frame_length,
+            }
+            .into());
+        }
+
+        let mut frame = vec![0; frame_length];
+        let received = self.read_decrypted_exact(&mut frame)?;
+        if received != frame_length {
+            return Err(NetworkError::TruncatedFrame {
+                expected: frame_length,
+                received,
+            });
+        }
+
+        let payload = self.decode_frame(frame)?;
+        self.parse_packet(payload)
+    }
+
+    fn read_frame_length(&mut self) -> Result<i32, NetworkError> {
+        let mut encoded = [0; 5];
+        let mut length = 0;
+
+        while length < encoded.len() {
+            let read = self.read_decrypted_exact(&mut encoded[length..length + 1])?;
+            if read == 0 {
+                return if length == 0 {
+                    Err(NetworkError::Closed)
+                } else {
+                    Err(NetworkError::TruncatedFrame {
+                        expected: length + 1,
+                        received: length,
+                    })
+                };
+            }
+
+            length += 1;
+            if encoded[length - 1] & 0x80 == 0 {
+                break;
+            }
+        }
+
+        let mut input = &encoded[..length];
+        let (value, _) =
+            input
+                .read_varint_with_size()
+                .map_err(|source| NetworkError::PacketCodec {
+                    packet_id: None,
+                    source,
+                })?;
+        Ok(value)
+    }
+
+    fn read_decrypted_exact(&mut self, buffer: &mut [u8]) -> Result<usize, NetworkError> {
+        let mut read = 0;
+        while read < buffer.len() {
+            match self.reader.read(&mut buffer[read..]) {
+                Ok(0) => break,
+                Ok(size) => {
+                    self.decryption.decrypt(&mut buffer[read..read + size])?;
+                    read += size;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(source) => {
+                    return Err(NetworkError::transport(IoOperation::Read, source));
+                }
+            }
+        }
+        Ok(read)
+    }
+
+    fn decode_frame(&mut self, frame: Vec<u8>) -> Result<Vec<u8>, NetworkError> {
+        let max_uncompressed_length = self.limits.max_uncompressed_length;
+        let CompressionMode::Enabled { codec, .. } = &mut self.compression else {
+            return Ok(frame);
+        };
+
+        if frame.is_empty() {
+            return Err(FrameError::MissingDataLength.into());
+        }
+
+        let mut input = frame.as_slice();
+        let (data_length, prefix_size) =
+            input
+                .read_varint_with_size()
+                .map_err(|source| NetworkError::PacketCodec {
+                    packet_id: None,
+                    source,
+                })?;
+        if data_length < 0 {
+            return Err(FrameError::NegativeLength { value: data_length }.into());
+        }
+        let data_length = data_length as usize;
+
+        if data_length == 0 {
+            let payload_length = frame.len() - prefix_size;
+            if payload_length > max_uncompressed_length {
+                return Err(CompressionError::OutputTooLarge {
+                    actual: payload_length,
+                    maximum: max_uncompressed_length,
+                }
+                .into());
+            }
+            let mut frame = frame;
+            frame.drain(..prefix_size);
+            return Ok(frame);
+        }
+
+        if data_length > max_uncompressed_length {
+            return Err(CompressionError::OutputTooLarge {
+                actual: data_length,
+                maximum: max_uncompressed_length,
+            }
+            .into());
+        }
+
+        let decompressed = codec.decompress(&frame[prefix_size..], data_length)?;
+        if decompressed.len() > max_uncompressed_length {
+            return Err(CompressionError::OutputTooLarge {
+                actual: decompressed.len(),
+                maximum: max_uncompressed_length,
+            }
+            .into());
+        }
+        if decompressed.len() != data_length {
+            return Err(CompressionError::LengthMismatch {
+                declared: data_length,
+                actual: decompressed.len(),
+            }
+            .into());
+        }
+        Ok(decompressed)
+    }
+
+    fn parse_packet(&self, payload: Vec<u8>) -> Result<PacketPayload, NetworkError> {
+        if payload.is_empty() {
+            return Err(FrameError::MissingPacketId.into());
+        }
+
+        let mut input = payload.as_slice();
+        let (packet_id, body_offset) =
+            input
+                .read_varint_with_size()
+                .map_err(|source| NetworkError::PacketCodec {
+                    packet_id: None,
+                    source,
+                })?;
+        let packet_id =
+            PacketId::new(packet_id).ok_or(FrameError::InvalidPacketId { value: packet_id })?;
+
+        Ok(PacketPayload {
+            packet_id,
+            data: payload,
+            body_offset,
+        })
     }
 }

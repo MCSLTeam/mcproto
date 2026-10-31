@@ -1,7 +1,7 @@
 //! Negotiated protocol and transform states.
 
 use crate::error::StateError;
-use crate::{CompressionCodec, EncryptionError, StreamEncryptor};
+use crate::{CompressionCodec, EncryptionError, StreamDecryptor, StreamEncryptor};
 
 /// A Java protocol state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -134,6 +134,50 @@ impl EncryptionMode {
     pub fn encrypt(&mut self, frame: &mut [u8]) -> Result<(), EncryptionError> {
         if let Some(encryptor) = self.encryptor_mut() {
             encryptor.encrypt(frame)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+/// Decryption configuration for one inbound stream direction.
+pub enum DecryptionMode {
+    /// Plaintext transport is active.
+    Disabled,
+    /// The supplied stateful stream decryptor is active.
+    Enabled(Box<dyn StreamDecryptor>),
+}
+
+impl DecryptionMode {
+    /// Creates the plaintext mode.
+    #[must_use]
+    pub const fn disabled() -> Self {
+        Self::Disabled
+    }
+
+    /// Creates an enabled mode from a stateful decryptor.
+    pub fn enabled(decryptor: impl StreamDecryptor + 'static) -> Self {
+        Self::Enabled(Box::new(decryptor))
+    }
+
+    /// Returns whether decryption is active.
+    #[must_use]
+    pub const fn is_enabled(&self) -> bool {
+        matches!(self, Self::Enabled(_))
+    }
+
+    /// Borrows the decryptor when enabled.
+    pub fn decryptor_mut(&mut self) -> Option<&mut dyn StreamDecryptor> {
+        match self {
+            Self::Disabled => None,
+            Self::Enabled(decryptor) => Some(decryptor.as_mut()),
+        }
+    }
+
+    /// Applies the decryptor to ciphertext when enabled.
+    pub fn decrypt(&mut self, frame: &mut [u8]) -> Result<(), EncryptionError> {
+        if let Some(decryptor) = self.decryptor_mut() {
+            decryptor.decrypt(frame)
         } else {
             Ok(())
         }

@@ -22,8 +22,9 @@ pub use error::{
 pub use mcproto_derive::PacketCodec;
 pub use packet::{
     DecodePacket, EncodePacket, Packet, PacketEncoder, PacketId, PacketLimits, PacketName,
+    PacketPayload, PacketReadLimits, PacketReader,
 };
-pub use state::{CompressionMode, Direction, EncryptionMode, ProtocolState};
+pub use state::{CompressionMode, DecryptionMode, Direction, EncryptionMode, ProtocolState};
 
 /// Re-exports used by generated `PacketCodec` implementations.
 #[doc(hidden)]
