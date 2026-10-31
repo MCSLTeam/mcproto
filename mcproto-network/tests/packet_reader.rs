@@ -92,6 +92,33 @@ fn reads_an_uncompressed_plaintext_frame() {
 }
 
 #[test]
+fn read_packet_into_reuses_frame_and_output_buffers() {
+    let mut encoder = PacketEncoder::new(
+        CompressionMode::disabled(),
+        EncryptionMode::disabled(),
+        mcproto_network::PacketLimits::default(),
+    );
+    let mut frames = encoder.encode(&packet()).unwrap();
+    frames.extend_from_slice(&encoder.encode(&packet()).unwrap());
+
+    let mut reader = PacketReader::new(
+        frames.as_slice(),
+        CompressionMode::disabled(),
+        DecryptionMode::disabled(),
+        PacketReadLimits::default(),
+    );
+    let mut body = Vec::with_capacity(1024);
+
+    assert_eq!(reader.read_packet_into(&mut body).unwrap().get(), 0x2a);
+    let allocation = body.as_ptr();
+    assert_eq!(body, [0xac, 0x02]);
+
+    assert_eq!(reader.read_packet_into(&mut body).unwrap().get(), 0x2a);
+    assert_eq!(body, [0xac, 0x02]);
+    assert_eq!(body.as_ptr(), allocation);
+}
+
+#[test]
 fn reads_a_compressed_and_encrypted_frame() {
     let mut encoder = PacketEncoder::new(
         CompressionMode::enabled(0, MarkerCompression),

@@ -227,6 +227,8 @@ pub struct PacketEncoder {
     compression: CompressionMode,
     encryption: EncryptionMode,
     limits: PacketLimits,
+    payload_scratch: Vec<u8>,
+    frame_scratch: Vec<u8>,
 }
 
 impl PacketEncoder {
@@ -241,6 +243,8 @@ impl PacketEncoder {
             compression,
             encryption,
             limits,
+            payload_scratch: Vec::new(),
+            frame_scratch: Vec::new(),
         }
     }
 
@@ -271,94 +275,178 @@ impl PacketEncoder {
         self.encode_with_id(P::ID, packet)
     }
 
+    /// Encodes a packet into a reusable output buffer.
+    ///
+    /// The output is cleared before encoding and retains its allocation for
+    /// subsequent calls.
+    pub fn encode_into<P: EncodePacket>(
+        &mut self,
+        packet: &P,
+        output: &mut Vec<u8>,
+    ) -> Result<(), NetworkError> {
+        self.encode_with_id_into(P::ID, packet, output)
+    }
+
     /// Encodes a body with a caller-supplied packet ID.
     pub fn encode_with_id<T: EncodePacket>(
         &mut self,
         packet_id: PacketId,
         packet: &T,
     ) -> Result<Vec<u8>, NetworkError> {
-        let mut payload = Vec::new();
-        payload
-            .write_varint(packet_id.get())
-            .map_err(|source| NetworkError::PacketCodec {
-                packet_id: Some(packet_id.get()),
-                source,
-            })?;
-        packet
-            .encode_body(&mut payload)
-            .map_err(|source| NetworkError::PacketCodec {
-                packet_id: Some(packet_id.get()),
-                source,
-            })?;
+        let mut frame = Vec::new();
+        self.encode_with_id_into(packet_id, packet, &mut frame)?;
+        Ok(frame)
+    }
 
-        if payload.len() > self.limits.max_frame_length {
+    /// Encodes a packet with a caller-supplied ID into a reusable buffer.
+    pub fn encode_with_id_into<T: EncodePacket>(
+        &mut self,
+        packet_id: PacketId,
+        packet: &T,
+        output: &mut Vec<u8>,
+    ) -> Result<(), NetworkError> {
+        output.clear();
+        if self.compression.is_enabled() {
+            self.encode_compressed_into(packet_id, packet, output)?;
+        } else {
+            self.encode_uncompressed_into(packet_id, packet, output)?;
+        }
+        // Encryption is deliberately last: Packet Length is encrypted too.
+        self.encryption.encrypt(output)?;
+        Ok(())
+    }
+
+    fn encode_uncompressed_into<T: EncodePacket>(
+        &mut self,
+        packet_id: PacketId,
+        packet: &T,
+        output: &mut Vec<u8>,
+    ) -> Result<(), NetworkError> {
+        const LENGTH_PREFIX_RESERVE: usize = 5;
+
+        output.resize(LENGTH_PREFIX_RESERVE, 0);
+        write_packet_payload(output, packet_id, packet)?;
+        self.finish_reserved_frame(output, packet_id)
+    }
+
+    fn encode_compressed_into<T: EncodePacket>(
+        &mut self,
+        packet_id: PacketId,
+        packet: &T,
+        output: &mut Vec<u8>,
+    ) -> Result<(), NetworkError> {
+        self.payload_scratch.clear();
+        write_packet_payload(&mut self.payload_scratch, packet_id, packet)?;
+        if self.payload_scratch.len() > self.limits.max_frame_length {
             return Err(NetworkError::Frame(FrameError::LengthTooLarge {
-                actual: payload.len(),
+                actual: self.payload_scratch.len(),
                 maximum: self.limits.max_frame_length,
             }));
         }
 
-        let frame_data = self.frame_data(&payload)?;
-        if frame_data.len() > self.limits.max_frame_length {
+        self.frame_scratch.clear();
+        let Self {
+            payload_scratch,
+            frame_scratch,
+            compression,
+            ..
+        } = self;
+        let CompressionMode::Enabled { threshold, codec } = compression else {
+            unreachable!("compressed encoding requires enabled compression");
+        };
+        if payload_scratch.len() >= *threshold {
+            let uncompressed_length = i32::try_from(payload_scratch.len()).map_err(|_| {
+                NetworkError::Frame(FrameError::LengthTooLarge {
+                    actual: payload_scratch.len(),
+                    maximum: i32::MAX as usize,
+                })
+            })?;
+            frame_scratch
+                .write_varint(uncompressed_length)
+                .map_err(|source| NetworkError::PacketCodec {
+                    packet_id: None,
+                    source,
+                })?;
+            codec.compress_into(payload_scratch, frame_scratch)?;
+        } else {
+            frame_scratch
+                .write_varint(0)
+                .map_err(|source| NetworkError::PacketCodec {
+                    packet_id: None,
+                    source,
+                })?;
+            frame_scratch.extend_from_slice(payload_scratch);
+        }
+        if self.frame_scratch.len() > self.limits.max_frame_length {
             return Err(NetworkError::Frame(FrameError::LengthTooLarge {
-                actual: frame_data.len(),
+                actual: self.frame_scratch.len(),
                 maximum: self.limits.max_frame_length,
             }));
         }
 
-        let frame_length = i32::try_from(frame_data.len()).map_err(|_| {
+        std::mem::swap(output, &mut self.frame_scratch);
+        let frame_data_length = output.len();
+        output.reserve(5);
+        output.resize(frame_data_length + 5, 0);
+        output.copy_within(0..frame_data_length, 5);
+        self.finish_reserved_frame(output, packet_id)
+    }
+
+    fn finish_reserved_frame(
+        &self,
+        frame: &mut Vec<u8>,
+        packet_id: PacketId,
+    ) -> Result<(), NetworkError> {
+        const LENGTH_PREFIX_RESERVE: usize = 5;
+
+        let frame_length = frame.len() - LENGTH_PREFIX_RESERVE;
+        if frame_length > self.limits.max_frame_length {
+            return Err(NetworkError::Frame(FrameError::LengthTooLarge {
+                actual: frame_length,
+                maximum: self.limits.max_frame_length,
+            }));
+        }
+        let frame_length = i32::try_from(frame_length).map_err(|_| {
             NetworkError::Frame(FrameError::LengthTooLarge {
-                actual: frame_data.len(),
+                actual: frame_length,
                 maximum: i32::MAX as usize,
             })
         })?;
 
-        let mut frame = Vec::new();
-        frame
-            .write_varint(frame_length)
-            .map_err(|source| NetworkError::PacketCodec {
-                packet_id: Some(packet_id.get()),
-                source,
-            })?;
-        frame.extend_from_slice(&frame_data);
+        let mut prefix = [0; LENGTH_PREFIX_RESERVE];
+        let mut prefix_writer = prefix.as_mut_slice();
+        let prefix_length =
+            prefix_writer
+                .write_varint_with_size(frame_length)
+                .map_err(|source| NetworkError::PacketCodec {
+                    packet_id: Some(packet_id.get()),
+                    source,
+                })?;
 
-        // Encryption is deliberately last: Packet Length is encrypted too.
-        self.encryption.encrypt(&mut frame)?;
-        Ok(frame)
+        frame.copy_within(LENGTH_PREFIX_RESERVE.., prefix_length);
+        frame.truncate(prefix_length + frame_length as usize);
+        frame[..prefix_length].copy_from_slice(&prefix[..prefix_length]);
+        Ok(())
     }
+}
 
-    fn frame_data(&mut self, payload: &[u8]) -> Result<Vec<u8>, NetworkError> {
-        match &mut self.compression {
-            CompressionMode::Disabled => Ok(payload.to_vec()),
-            CompressionMode::Enabled { threshold, codec } => {
-                let mut data = Vec::new();
-                if payload.len() >= *threshold {
-                    let uncompressed_length = i32::try_from(payload.len()).map_err(|_| {
-                        NetworkError::Frame(FrameError::LengthTooLarge {
-                            actual: payload.len(),
-                            maximum: i32::MAX as usize,
-                        })
-                    })?;
-                    data.write_varint(uncompressed_length).map_err(|source| {
-                        NetworkError::PacketCodec {
-                            packet_id: None,
-                            source,
-                        }
-                    })?;
-                    let compressed = codec.compress(payload)?;
-                    data.extend_from_slice(&compressed);
-                } else {
-                    data.write_varint(0)
-                        .map_err(|source| NetworkError::PacketCodec {
-                            packet_id: None,
-                            source,
-                        })?;
-                    data.extend_from_slice(payload);
-                }
-                Ok(data)
-            }
-        }
-    }
+fn write_packet_payload<T: EncodePacket>(
+    output: &mut Vec<u8>,
+    packet_id: PacketId,
+    packet: &T,
+) -> Result<(), NetworkError> {
+    output
+        .write_varint(packet_id.get())
+        .map_err(|source| NetworkError::PacketCodec {
+            packet_id: Some(packet_id.get()),
+            source,
+        })?;
+    packet
+        .encode_body(output)
+        .map_err(|source| NetworkError::PacketCodec {
+            packet_id: Some(packet_id.get()),
+            source,
+        })
 }
 
 /// One decoded packet ID and its body bytes.
@@ -399,6 +487,8 @@ pub struct PacketReader<R> {
     compression: CompressionMode,
     decryption: DecryptionMode,
     limits: PacketReadLimits,
+    frame_scratch: Vec<u8>,
+    payload_scratch: Vec<u8>,
 }
 
 impl<R: Read> PacketReader<R> {
@@ -415,6 +505,8 @@ impl<R: Read> PacketReader<R> {
             compression,
             decryption,
             limits,
+            frame_scratch: Vec::new(),
+            payload_scratch: Vec::new(),
         }
     }
 
@@ -456,6 +548,33 @@ impl<R: Read> PacketReader<R> {
     /// A clean end of input before a frame starts is reported as
     /// [`NetworkError::Closed`].
     pub fn read_packet(&mut self) -> Result<PacketPayload, NetworkError> {
+        let (packet_id, body_offset) = self.read_packet_payload()?;
+        Ok(PacketPayload {
+            packet_id,
+            data: std::mem::take(&mut self.payload_scratch),
+            body_offset,
+        })
+    }
+
+    /// Reads one packet into a reusable body buffer and returns its packet ID.
+    ///
+    /// The output is replaced with the packet body, excluding the packet ID.
+    /// The output and internal frame/decompression buffers retain their
+    /// allocations for subsequent calls.
+    pub fn read_packet_into(&mut self, output: &mut Vec<u8>) -> Result<PacketId, NetworkError> {
+        let (packet_id, body_offset) = self.read_packet_payload()?;
+        output.clear();
+        output.extend_from_slice(&self.payload_scratch[body_offset..]);
+        Ok(packet_id)
+    }
+
+    fn read_packet_payload(&mut self) -> Result<(PacketId, usize), NetworkError> {
+        self.read_frame_into_scratch()?;
+        self.decode_frame()?;
+        parse_packet_payload(&self.payload_scratch)
+    }
+
+    fn read_frame_into_scratch(&mut self) -> Result<(), NetworkError> {
         let frame_length = self.read_frame_length()?;
         if frame_length < 0 {
             return Err(FrameError::NegativeLength {
@@ -472,17 +591,20 @@ impl<R: Read> PacketReader<R> {
             .into());
         }
 
-        let mut frame = vec![0; frame_length];
-        let received = self.read_decrypted_exact(&mut frame)?;
+        self.frame_scratch.clear();
+        self.frame_scratch.resize(frame_length, 0);
+        let received = read_decrypted_exact(
+            &mut self.reader,
+            &mut self.decryption,
+            &mut self.frame_scratch,
+        )?;
         if received != frame_length {
             return Err(NetworkError::TruncatedFrame {
                 expected: frame_length,
                 received,
             });
         }
-
-        let payload = self.decode_frame(frame)?;
-        self.parse_packet(payload)
+        Ok(())
     }
 
     fn read_frame_length(&mut self) -> Result<i32, NetworkError> {
@@ -490,7 +612,11 @@ impl<R: Read> PacketReader<R> {
         let mut length = 0;
 
         while length < encoded.len() {
-            let read = self.read_decrypted_exact(&mut encoded[length..length + 1])?;
+            let read = read_decrypted_exact(
+                &mut self.reader,
+                &mut self.decryption,
+                &mut encoded[length..length + 1],
+            )?;
             if read == 0 {
                 return if length == 0 {
                     Err(NetworkError::Closed)
@@ -519,35 +645,18 @@ impl<R: Read> PacketReader<R> {
         Ok(value)
     }
 
-    fn read_decrypted_exact(&mut self, buffer: &mut [u8]) -> Result<usize, NetworkError> {
-        let mut read = 0;
-        while read < buffer.len() {
-            match self.reader.read(&mut buffer[read..]) {
-                Ok(0) => break,
-                Ok(size) => {
-                    self.decryption.decrypt(&mut buffer[read..read + size])?;
-                    read += size;
-                }
-                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-                Err(source) => {
-                    return Err(NetworkError::transport(IoOperation::Read, source));
-                }
-            }
-        }
-        Ok(read)
-    }
-
-    fn decode_frame(&mut self, frame: Vec<u8>) -> Result<Vec<u8>, NetworkError> {
+    fn decode_frame(&mut self) -> Result<(), NetworkError> {
         let max_uncompressed_length = self.limits.max_uncompressed_length;
-        let CompressionMode::Enabled { codec, .. } = &mut self.compression else {
-            return Ok(frame);
-        };
+        if !self.compression.is_enabled() {
+            std::mem::swap(&mut self.payload_scratch, &mut self.frame_scratch);
+            return Ok(());
+        }
 
-        if frame.is_empty() {
+        if self.frame_scratch.is_empty() {
             return Err(FrameError::MissingDataLength.into());
         }
 
-        let mut input = frame.as_slice();
+        let mut input = self.frame_scratch.as_slice();
         let (data_length, prefix_size) =
             input
                 .read_varint_with_size()
@@ -561,7 +670,7 @@ impl<R: Read> PacketReader<R> {
         let data_length = data_length as usize;
 
         if data_length == 0 {
-            let payload_length = frame.len() - prefix_size;
+            let payload_length = self.frame_scratch.len() - prefix_size;
             if payload_length > max_uncompressed_length {
                 return Err(CompressionError::OutputTooLarge {
                     actual: payload_length,
@@ -569,9 +678,9 @@ impl<R: Read> PacketReader<R> {
                 }
                 .into());
             }
-            let mut frame = frame;
-            frame.drain(..prefix_size);
-            return Ok(frame);
+            std::mem::swap(&mut self.payload_scratch, &mut self.frame_scratch);
+            self.payload_scratch.drain(..prefix_size);
+            return Ok(());
         }
 
         if data_length > max_uncompressed_length {
@@ -582,44 +691,71 @@ impl<R: Read> PacketReader<R> {
             .into());
         }
 
-        let decompressed = codec.decompress(&frame[prefix_size..], data_length)?;
-        if decompressed.len() > max_uncompressed_length {
+        self.payload_scratch.clear();
+        let Self {
+            frame_scratch,
+            payload_scratch,
+            compression,
+            ..
+        } = self;
+        let CompressionMode::Enabled { codec, .. } = compression else {
+            unreachable!("compressed decoding requires enabled compression");
+        };
+        codec.decompress_into(&frame_scratch[prefix_size..], data_length, payload_scratch)?;
+        if payload_scratch.len() > max_uncompressed_length {
             return Err(CompressionError::OutputTooLarge {
-                actual: decompressed.len(),
+                actual: payload_scratch.len(),
                 maximum: max_uncompressed_length,
             }
             .into());
         }
-        if decompressed.len() != data_length {
+        if payload_scratch.len() != data_length {
             return Err(CompressionError::LengthMismatch {
                 declared: data_length,
-                actual: decompressed.len(),
+                actual: payload_scratch.len(),
             }
             .into());
         }
-        Ok(decompressed)
+        Ok(())
     }
+}
 
-    fn parse_packet(&self, payload: Vec<u8>) -> Result<PacketPayload, NetworkError> {
-        if payload.is_empty() {
-            return Err(FrameError::MissingPacketId.into());
+fn read_decrypted_exact<R: Read>(
+    reader: &mut BufReader<R>,
+    decryption: &mut DecryptionMode,
+    buffer: &mut [u8],
+) -> Result<usize, NetworkError> {
+    let mut read = 0;
+    while read < buffer.len() {
+        match reader.read(&mut buffer[read..]) {
+            Ok(0) => break,
+            Ok(size) => {
+                decryption.decrypt(&mut buffer[read..read + size])?;
+                read += size;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(source) => {
+                return Err(NetworkError::transport(IoOperation::Read, source));
+            }
         }
-
-        let mut input = payload.as_slice();
-        let (packet_id, body_offset) =
-            input
-                .read_varint_with_size()
-                .map_err(|source| NetworkError::PacketCodec {
-                    packet_id: None,
-                    source,
-                })?;
-        let packet_id =
-            PacketId::new(packet_id).ok_or(FrameError::InvalidPacketId { value: packet_id })?;
-
-        Ok(PacketPayload {
-            packet_id,
-            data: payload,
-            body_offset,
-        })
     }
+    Ok(read)
+}
+
+fn parse_packet_payload(payload: &[u8]) -> Result<(PacketId, usize), NetworkError> {
+    if payload.is_empty() {
+        return Err(FrameError::MissingPacketId.into());
+    }
+
+    let mut input = payload;
+    let (packet_id, body_offset) =
+        input
+            .read_varint_with_size()
+            .map_err(|source| NetworkError::PacketCodec {
+                packet_id: None,
+                source,
+            })?;
+    let packet_id =
+        PacketId::new(packet_id).ok_or(FrameError::InvalidPacketId { value: packet_id })?;
+    Ok((packet_id, body_offset))
 }

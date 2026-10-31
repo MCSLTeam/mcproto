@@ -40,6 +40,21 @@ pub trait CompressionCodec {
     /// Compresses one complete `Packet ID + Packet Data` value.
     fn compress(&mut self, input: &[u8]) -> Result<Vec<u8>, CompressionError>;
 
+    /// Appends compressed bytes to a reusable output buffer.
+    ///
+    /// The default implementation preserves compatibility for existing
+    /// backends by using [`compress`](Self::compress). Implementations should
+    /// override this method when the backend can append into an existing
+    /// allocation. Implementations must not clear the supplied buffer.
+    fn compress_into(
+        &mut self,
+        input: &[u8],
+        output: &mut Vec<u8>,
+    ) -> Result<(), CompressionError> {
+        output.extend_from_slice(&self.compress(input)?);
+        Ok(())
+    }
+
     /// Decompresses one compressed packet payload.
     ///
     /// `expected_len` is the value carried by the protocol's Data Length field.
@@ -48,6 +63,21 @@ pub trait CompressionCodec {
         input: &[u8],
         expected_len: usize,
     ) -> Result<Vec<u8>, CompressionError>;
+
+    /// Appends decompressed bytes to a reusable output buffer.
+    ///
+    /// The default implementation preserves compatibility for existing
+    /// backends by using [`decompress`](Self::decompress). Implementations
+    /// must not clear the supplied buffer.
+    fn decompress_into(
+        &mut self,
+        input: &[u8],
+        expected_len: usize,
+        output: &mut Vec<u8>,
+    ) -> Result<(), CompressionError> {
+        output.extend_from_slice(&self.decompress(input, expected_len)?);
+        Ok(())
+    }
 }
 
 /// A stateful encryptor for one direction of the connection.
